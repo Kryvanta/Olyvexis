@@ -1,0 +1,38 @@
+name: Bug report / Báo lỗi
+description: Something does not work, or an app fails to open in Olyvexis. / Có gì đó không chạy, hoặc app không mở được trong Olyvexis.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / Chuyện gì xảy ra?
+      description: What you did, what you expected, what you saw. / Bạn đã làm gì, mong đợi gì, thấy gì.
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device, ROM and Android version / Máy, ROM và phiên bản Android
+      placeholder: "Honor Magic8 Pro (MagicOS 11, Android 17) / Galaxy Z Flip5 (One UI 7, Android 15)"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Display mode / Chế độ xuất hình
+      options:
+        - Wi-Fi (Laptop / TV browser)
+        - Cable (USB-C to HDMI / DisplayPort)
+        - Preview on phone
+    validations:
+      required: true
+  - type: input
+    id: shizuku
+    attributes:
+      label: Shizuku version & activation / Phiên bản Shizuku & cách bật
+      placeholder: "Shizuku 13.6.0, Wireless Debugging (shell uid 2000)"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error message or logcat (if any) / Thông báo lỗi hoặc logcat (nếu có)
+      render: text

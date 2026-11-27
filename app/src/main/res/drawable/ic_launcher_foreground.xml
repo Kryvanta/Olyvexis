@@ -1,0 +1,36 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Khung màn hình chính -->
+    <path android:pathData="M31,32L77,32A5,5 0,0 1,82 37L82,65A5,5 0,0 1,77 70L31,70A5,5 0,0 1,26 65L26,37A5,5 0,0 1,31 32z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="82"
+                android:endY="70"
+                android:startX="26"
+                android:startY="32"
+                android:type="linear">
+                <item android:color="#FF3B82F6" android:offset="0" />
+                <item android:color="#FF6366F1" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Cửa sổ phụ nổi phía trước (biểu tượng đa cửa sổ + chữ O Olyvexis) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillAlpha="0.95"
+        android:pathData="M43,40L65,40A4,4 0,0 1,69 44L69,58A4,4 0,0 1,65 62L43,62A4,4 0,0 1,39 58L39,44A4,4 0,0 1,43 40z" />
+    <path
+        android:fillColor="#FF1D4ED8"
+        android:pathData="M47,46L61,46A2,2 0,0 1,63 48L63,54A2,2 0,0 1,61 56L47,56A2,2 0,0 1,45 54L45,48A2,2 0,0 1,47 46z" />
+    <!-- Chân đế màn hình -->
+    <path
+        android:fillColor="#FF93C5FD"
+        android:pathData="M48,70h12v5h-12z" />
+    <path
+        android:fillColor="#FFE0F2FE"
+        android:pathData="M41,75L67,75A2,2 0,0 1,69 77L69,77A2,2 0,0 1,67 79L41,79A2,2 0,0 1,39 77L39,77A2,2 0,0 1,41 75z" />
+</vector>

@@ -1,0 +1,93 @@
+name: Release
+
+# Push a tag such as v0.1.0 (or run it manually with a version) to build a signed APK and publish a release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.1.0 (tag becomes v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo 'Missing release signing secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD' >&2
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          echo "KEYSTORE_FILE=$PWD/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -PversionName="${{ steps.version.outputs.version }}" \
+            -PversionCode="${{ github.run_number }}"
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          cp "$APK" "Olyvexis-${{ steps.version.outputs.version }}.apk"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          1. Download **Olyvexis-$VERSION.apk** below and install it on Android 11+.
+          2. Install and start [Shizuku](https://shizuku.rikka.app/) via Wireless Debugging (no root needed), then grant permission to Olyvexis.
+          3. Plug in an external USB-C → HDMI/DisplayPort display, or tap **Laptop** to stream over Wi-Fi.
+
+          ## Cài đặt
+
+          1. Tải **Olyvexis-$VERSION.apk** bên dưới và cài lên Android 11+.
+          2. Cài và bật [Shizuku](https://shizuku.rikka.app/) bằng Gỡ lỗi không dây (không cần root), rồi cấp quyền cho Olyvexis.
+          3. Cắm màn hình ngoài qua USB-C → HDMI/DisplayPort, hoặc bấm **Laptop** để phát qua Wi-Fi.
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "Olyvexis-$VERSION.apk" --clobber
+          else
+            gh release create "$TAG" "Olyvexis-$VERSION.apk" --title "Olyvexis $VERSION" \
+              --notes-file notes.md --generate-notes --target "$GITHUB_SHA"
+          fi

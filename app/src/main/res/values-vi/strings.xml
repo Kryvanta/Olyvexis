@@ -1,0 +1,161 @@
+<resources>
+    <string name="app_name">Olyvexis</string>
+    <string name="stream_channel_name">Phát màn hình desktop</string>
+
+    <!-- Trạng thái chính & banner -->
+    <string name="status_external_connected">Màn hình ngoài: %1$s</string>
+    <string name="status_laptop_url">Laptop: %1$s</string>
+    <string name="status_no_wifi">chưa có Wi-Fi</string>
+    <string name="status_pin_clients">PIN %1$s · %2$s</string>
+    <string name="status_no_viewers">chưa ai xem</string>
+    <string name="status_viewers_count">%1$d đang xem</string>
+    <string name="status_external_seen">Đã thấy %1$s</string>
+    <string name="status_no_display">Chưa nối màn hình</string>
+    <string name="windows_singular">1 cửa sổ</string>
+    <string name="windows_plural">%1$d cửa sổ</string>
+
+    <string name="banner_shizuku_needed">Cần bật Shizuku để dùng Olyvexis.</string>
+    <string name="banner_guide">Hướng dẫn</string>
+    <string name="banner_vendor_desktop">%1$s vẫn đang chạy trên màn hình ngoài. Tắt %1$s rồi cắm lại cáp để Olyvexis có trọn màn hình.</string>
+    <string name="action_retry">Thử lại</string>
+
+    <!-- Nút điều khiển & Trackpad -->
+    <string name="btn_apps">Ứng dụng</string>
+    <string name="btn_display">Màn hình</string>
+    <string name="btn_laptop">Laptop</string>
+    <string name="btn_settings">Cài đặt</string>
+
+    <string name="gesture_1f_title">1 ngón</string>
+    <string name="gesture_1f_action">Di chuyển</string>
+    <string name="gesture_tap_title">Chạm</string>
+    <string name="gesture_tap_action">Nhấp</string>
+    <string name="gesture_2f_title">2 ngón</string>
+    <string name="gesture_2f_action">Cuộn</string>
+    <string name="gesture_2f_tap_title">Chạm 2 ngón</string>
+    <string name="gesture_2f_tap_action">Nhấp phải</string>
+    <string name="trackpad_connect_hint">Nối màn hình, hoặc bấm Laptop</string>
+    <string name="compose_hint">Gõ chữ để gửi lên desktop</string>
+    <string name="compose_send">Gửi chữ</string>
+
+    <!-- Các bảng trượt -->
+    <string name="sheet_apps_title">Ứng dụng</string>
+    <string name="sheet_apps_empty_hint">Nối màn hình hoặc bấm Laptop trước, rồi mở app ở đây: app sẽ mở thành cửa sổ trên desktop.</string>
+    <string name="sheet_apps_search">Tìm ứng dụng</string>
+
+    <string name="sheet_laptop_title">Laptop hoặc TV</string>
+    <string name="sheet_laptop_desc">Desktop hiện trong trình duyệt của laptop hoặc TV cùng Wi-Fi. Chuột và bàn phím của laptop điều khiển được desktop.</string>
+    <string name="sheet_laptop_start">Bắt đầu phát</string>
+    <string name="sheet_laptop_starting">Đang tạo desktop…</string>
+    <string name="sheet_laptop_open_url">Mở địa chỉ này trong trình duyệt của laptop:</string>
+    <string name="sheet_laptop_no_ip">Điện thoại chưa nối Wi-Fi hoặc chưa bật điểm phát Wi-Fi.</string>
+    <string name="sheet_laptop_pin">Mã PIN</string>
+    <string name="sheet_laptop_stop">Dừng phát</string>
+
+    <string name="sheet_settings_title">Cài đặt</string>
+    <string name="setting_pointer">Con trỏ</string>
+    <string name="setting_scroll">Cuộn</string>
+    <string name="setting_natural_scroll">Cuộn tự nhiên</string>
+    <string name="setting_pointer_accel">Tăng tốc con trỏ</string>
+    <string name="setting_shizuku">Shizuku</string>
+    <string name="setting_shizuku_ready">Đã kết nối</string>
+    <string name="setting_shizuku_not_ready">Chưa sẵn sàng</string>
+    <string name="setting_preview">Xem desktop trên điện thoại</string>
+    <string name="setting_guide">Hướng dẫn</string>
+
+    <string name="sheet_shizuku_title">Shizuku</string>
+    <string name="sheet_shizuku_desc">Olyvexis cần Shizuku để tạo desktop, mở app thành cửa sổ và điều khiển chuột, bàn phím. Bật bằng Gỡ lỗi không dây ngay trên máy: không cần root, không cần máy tính.</string>
+
+    <!-- Hướng dẫn Shizuku -->
+    <string name="shizuku_not_running">Shizuku chưa chạy. Làm theo các bước sau:</string>
+    <string name="shizuku_step_1">Cài Shizuku (Google Play hoặc GitHub).</string>
+    <string name="shizuku_step_2">Bật Tuỳ chọn nhà phát triển: vào Cài đặt > Giới thiệu về điện thoại, chạm 7 lần vào Số hiệu bản dựng.</string>
+    <string name="shizuku_step_3">Kết nối Wi-Fi. Trong Tuỳ chọn nhà phát triển, bật Gỡ lỗi không dây.</string>
+    <string name="shizuku_step_4">Mở Shizuku, chọn Ghép nối trong mục Gỡ lỗi không dây. Shizuku hiện một thông báo để nhập mã.</string>
+    <string name="shizuku_step_5">Quay lại Gỡ lỗi không dây, chọn \"Ghép nối thiết bị bằng mã ghép nối\", rồi nhập mã 6 số vào thông báo của Shizuku.</string>
+    <string name="shizuku_step_6">Trong Shizuku bấm Bắt đầu, rồi quay lại đây.</string>
+    <string name="shizuku_reboot_note">Sau mỗi lần khởi động lại máy, cần mở Shizuku và bấm Bắt đầu lại.</string>
+    <string name="shizuku_open">Mở Shizuku</string>
+    <string name="shizuku_download">Tải Shizuku</string>
+    <string name="shizuku_dev_options">Tuỳ chọn nhà phát triển</string>
+    <string name="shizuku_recheck">Kiểm tra lại</string>
+    <string name="shizuku_outdated">Bản Shizuku trên máy quá cũ (cần API 11+). Cập nhật Shizuku rồi kiểm tra lại.</string>
+    <string name="shizuku_update">Tải bản mới</string>
+    <string name="shizuku_no_perm">Shizuku đang chạy. Cấp quyền cho Olyvexis.</string>
+    <string name="shizuku_grant">Cấp quyền</string>
+    <string name="shizuku_denied">Bạn đã từ chối quyền. Mở Shizuku > Ứng dụng được cấp quyền, bật Olyvexis rồi quay lại.</string>
+    <string name="shizuku_ready_shell">Đã kết nối Shizuku (shell uid 2000).</string>
+    <string name="shizuku_ready_root">Shizuku đang chạy bằng root (uid 0). Nếu gặp lỗi tạo màn hình ảo, hãy khởi động Shizuku qua Gỡ lỗi không dây.</string>
+    <string name="shizuku_test_cmd">Chạy thử lệnh</string>
+    <string name="shizuku_testing">Đang chạy…</string>
+
+    <!-- Màn hướng dẫn lần đầu -->
+    <string name="welcome_p1_title">Nối màn hình</string>
+    <string name="welcome_p1_l1">Cắm điện thoại vào màn hình hoặc TV bằng cáp USB-C → HDMI/DisplayPort, nếu máy xuất hình được.</string>
+    <string name="welcome_p1_l2">Hoặc bấm Laptop: desktop hiện trong trình duyệt của laptop hay TV cùng Wi-Fi.</string>
+    <string name="welcome_p1_l3">Máy có chế độ desktop riêng (Samsung DeX, Honor PC mode…) thì tắt nó đi trước khi cắm cáp.</string>
+    <string name="welcome_p1_l4">Desktop hiện trên màn hình lớn; điện thoại thành trackpad và bàn phím.</string>
+
+    <string name="welcome_p2_title">Bật Shizuku</string>
+    <string name="welcome_p2_l1">Cài Shizuku, rồi bật Tuỳ chọn nhà phát triển (chạm 7 lần vào Số hiệu bản dựng).</string>
+    <string name="welcome_p2_l2">Nối Wi-Fi, bật Gỡ lỗi không dây, rồi ghép nối trong app Shizuku bằng mã 6 số.</string>
+    <string name="welcome_p2_l3">Trong Shizuku bấm Bắt đầu, rồi cấp quyền cho Olyvexis.</string>
+    <string name="welcome_p2_l4">Sau mỗi lần khởi động lại máy, mở Shizuku và bấm Bắt đầu lại.</string>
+
+    <string name="welcome_p3_title">Điện thoại là trackpad</string>
+    <string name="welcome_p3_l1">Di một ngón để di con trỏ, chạm để nhấp, chạm hai ngón hoặc giữ lâu để nhấp phải.</string>
+    <string name="welcome_p3_l2">Kéo hai ngón để cuộn.</string>
+    <string name="welcome_p3_l3">Xoay ngang điện thoại: trackpad chiếm cả màn hình.</string>
+
+    <string name="welcome_p4_title">Bàn phím và chuột</string>
+    <string name="welcome_p4_l1">Dùng laptop: chuột và bàn phím của laptop điều khiển desktop luôn.</string>
+    <string name="welcome_p4_l2">Bàn phím, chuột Bluetooth hoặc cắm qua hub dùng được ngay.</string>
+    <string name="welcome_p4_l3">Hoặc gõ ở ô dưới cùng trên điện thoại, mọi ngôn ngữ (Telex, VNI…).</string>
+    <string name="welcome_p4_l4">Meta mở ngăn ứng dụng, Alt+F4 đóng cửa sổ, Meta+mũi tên để ghép nửa màn hình.</string>
+
+    <string name="welcome_start">Bắt đầu dùng Olyvexis</string>
+    <string name="welcome_next">Tiếp</string>
+    <string name="welcome_skip">Bỏ qua</string>
+
+    <!-- Thông báo phát & Xem trước -->
+    <string name="notif_starting">Đang khởi động…</string>
+    <string name="notif_title">Olyvexis đang phát</string>
+    <string name="notif_stop">Dừng</string>
+    <string name="notif_running">PIN %1$s · %2$s</string>
+    <string name="notif_watching"> · %1$d đang xem</string>
+
+    <string name="preview_title">Xem trước Desktop</string>
+    <string name="preview_exit">Thoát</string>
+    <string name="preview_touch_hint">Chạm trực tiếp vào khung trên để thao tác</string>
+
+    <!-- Giao diện Desktop -->
+    <string name="desk_apps">Ứng dụng</string>
+    <string name="desk_search_apps">Tìm ứng dụng (không cần dấu)…</string>
+    <string name="desk_recent">Mở gần đây</string>
+    <string name="desk_all_apps">Tất cả ứng dụng</string>
+    <string name="desk_results">Kết quả (%1$d)</string>
+    <string name="desk_open_app">Mở %1$s</string>
+    <string name="desk_pin_taskbar">Ghim lên thanh tác vụ</string>
+    <string name="desk_unpin_taskbar">Bỏ ghim khỏi thanh tác vụ</string>
+    <string name="desk_unpin_desktop">Bỏ ghim khỏi Desktop</string>
+    <string name="desk_menu_apps">Mở ngăn ứng dụng</string>
+    <string name="desk_menu_next_wallpaper">Đổi hình nền tiếp theo</string>
+    <string name="desk_menu_dynamic_wallpaper">Hình nền động theo giờ</string>
+    <string name="desk_menu_night_on">Bật Ánh sáng đêm</string>
+    <string name="desk_menu_night_off">Tắt Ánh sáng đêm</string>
+    <string name="desk_menu_minimize_all">Thu nhỏ tất cả cửa sổ</string>
+    <string name="desk_menu_close_all">Đóng tất cả cửa sổ</string>
+    <string name="desk_quick_night">Ánh sáng đêm</string>
+    <string name="desk_quick_dynamic_on">Nền động (đang bật)</string>
+    <string name="desk_quick_dynamic_off">Nền động theo giờ</string>
+    <string name="desk_quick_change_bg">Đổi hình nền</string>
+    <string name="desk_quick_show_desktop">Hiện Desktop</string>
+    <string name="desk_quick_no_windows">Không có cửa sổ nào đang mở</string>
+    <string name="desk_quick_open_windows">Cửa sổ đang mở (%1$d)</string>
+    <string name="desk_win_show">Hiện cửa sổ</string>
+    <string name="desk_win_focus">Đưa lên trước</string>
+    <string name="desk_win_minimize">Thu nhỏ</string>
+    <string name="desk_win_snap_left">Bám nửa trái</string>
+    <string name="desk_win_snap_right">Bám nửa phải</string>
+    <string name="desk_win_close">Đóng cửa sổ</string>
+    <string name="desk_win_error">Không mở được %1$s</string>
+</resources>
