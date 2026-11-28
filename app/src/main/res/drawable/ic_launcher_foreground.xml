@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Khung màn hình chính -->
+    <!-- Main monitor frame -->
     <path android:pathData="M31,32L77,32A5,5 0,0 1,82 37L82,65A5,5 0,0 1,77 70L31,70A5,5 0,0 1,26 65L26,37A5,5 0,0 1,31 32z">
         <aapt:attr name="android:fillColor">
             <gradient
@@ -18,7 +18,7 @@
             </gradient>
         </aapt:attr>
     </path>
-    <!-- Cửa sổ phụ nổi phía trước (biểu tượng đa cửa sổ + chữ O Olyvexis) -->
+    <!-- Floating inner window -->
     <path
         android:fillColor="#FFFFFFFF"
         android:fillAlpha="0.95"
@@ -26,7 +26,7 @@
     <path
         android:fillColor="#FF1D4ED8"
         android:pathData="M47,46L61,46A2,2 0,0 1,63 48L63,54A2,2 0,0 1,61 56L47,56A2,2 0,0 1,45 54L45,48A2,2 0,0 1,47 46z" />
-    <!-- Chân đế màn hình -->
+    <!-- Monitor stand -->
     <path
         android:fillColor="#FF93C5FD"
         android:pathData="M48,70h12v5h-12z" />

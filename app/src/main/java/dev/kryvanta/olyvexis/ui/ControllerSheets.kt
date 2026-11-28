@@ -67,7 +67,7 @@ import dev.kryvanta.olyvexis.stream.StreamState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/* Các bảng trượt từ dưới lên, giống sheet của iDesk: nền xám tối, tiêu đề lớn, ít chữ. */
+/* Bottom sheets: dark surface, large title, minimal text. */
 
 private val SheetColor = Color(0xFF1C1C1E)
 private val RowColor = Color(0xFF2C2C2E)
@@ -117,7 +117,7 @@ private fun SettingRow(icon: ImageVector, title: String, onClick: (() -> Unit)? 
     }
 }
 
-// ---------------------------------------------------------------- Ứng dụng
+// ---------------------------------------------------------------- Apps
 
 @Composable
 fun AppsSheet(desktopRunning: Boolean, onOpen: (LaunchableApp) -> Unit, onDismiss: () -> Unit) {
@@ -250,7 +250,7 @@ fun LaptopSheet(state: StreamState, onStart: () -> Unit, onStop: () -> Unit, onD
     }
 }
 
-// ---------------------------------------------------------------- Cài đặt
+// ---------------------------------------------------------------- Settings
 
 @Composable
 fun SettingsSheet(

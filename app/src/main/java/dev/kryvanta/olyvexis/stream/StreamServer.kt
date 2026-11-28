@@ -21,18 +21,18 @@ import javax.net.ssl.SSLServerSocket
 import kotlin.concurrent.thread
 
 /**
- * Server HTTP/WebSocket + HTTPS/WSS trong mạng nội bộ:
- * - HTTP/WS ở [port] (mặc định 8765): dùng cho `http://localhost` (`adb forward`) và dự phòng MSE
- *   trên trình duyệt TV / `http://<ip-lan>`.
- * - HTTPS/WSS ở [httpsPort] (khi có [sslContext]): dùng chứng chỉ tự ký cho `https://<ip-lan>`,
- *   tạo Secure Context để WebCodecs chạy trực tiếp qua Wi-Fi sau khi xác nhận cảnh báo một lần.
+ * Local HTTP/WebSocket + HTTPS/WSS server:
+ * - HTTP/WS on [port] (default 8765): for `http://localhost` (`adb forward`) and MSE fallback
+ *   on TV browsers / `http://<lan-ip>`.
+ * - HTTPS/WSS on [httpsPort] (when [sslContext] is provided): self-signed cert for `https://<lan-ip>`,
+ *   providing a Secure Context so WebCodecs works over Wi-Fi after accepting the warning once.
  */
 class StreamServer(
     private val assets: AssetManager,
     val pin: String,
     private var width: Int,
     private var height: Int,
-    /** Cổng muốn dùng; nếu bận thì thử các cổng kế tiếp. Cổng thật nằm ở [port] sau [start]. */
+    /** Preferred port; tries subsequent ports if busy. Actual bound port is in [port] after [start]. */
     private val preferredPort: Int = DEFAULT_PORT,
     private val sslContext: SSLContext? = null,
     private val onKeyFrameNeeded: () -> Unit,
@@ -45,10 +45,10 @@ class StreamServer(
         private const val FLAG_CONFIG = 1
         private const val FLAG_KEY = 2
 
-        /** Số gói tối đa xếp hàng cho mỗi client; đầy thì bỏ tới keyframe kế tiếp. */
+        /** Max queued packets per client; when full, drops until the next keyframe. */
         private const val CLIENT_QUEUE = 60
 
-        /** Giới hạn bộ nhớ cho nhóm khung (GOP) giữ lại cho client mới. */
+        /** Memory cap for the retained GOP sent to newly connected clients. */
         private const val GOP_CACHE_BYTES = 8 * 1024 * 1024
     }
 
@@ -61,7 +61,7 @@ class StreamServer(
         private set
     private val clients = CopyOnWriteArrayList<Client>()
 
-    /** SPS/PPS gần nhất, ghép vào trước mỗi keyframe để client mới giải mã được ngay. */
+    /** Latest SPS/PPS prepended before every keyframe so new clients can decode immediately. */
     @Volatile private var config: ByteArray? = null
 
     private val gop = ArrayList<ByteArray>()
@@ -100,7 +100,7 @@ class StreamServer(
         }
     }
 
-    /** Mở cổng đầu tiên còn trống trong [start]..[start]+attempts-1 (cổng có thể bị app khác chiếm). */
+    /** Bind the first available port in [start]..[start]+attempts-1 (another app may hold the port). */
     private fun <T : ServerSocket> bindFirstFree(start: Int, attempts: Int, factory: () -> T): T {
         var lastError: Exception? = null
         for (p in start until start + attempts) {
@@ -114,7 +114,7 @@ class StreamServer(
                 lastError = e
             }
         }
-        throw IllegalStateException("Không mở được cổng $start–${start + attempts - 1}: $lastError")
+        throw IllegalStateException("Không mở được cổng $start-${start + attempts - 1}: $lastError")
     }
 
     fun stop() {
@@ -139,7 +139,7 @@ class StreamServer(
         return """{"type":"hello","width":$width,"height":$height$httpsPart}""".toByteArray()
     }
 
-    /** Cập nhật kích thước desktop mới cho các client hiện tại và client mới sau này. */
+    /** Broadcast updated desktop dimensions to existing and future clients. */
     fun notifyResized(newWidth: Int, newHeight: Int) {
         width = newWidth
         height = newHeight
@@ -155,7 +155,7 @@ class StreamServer(
         onKeyFrameNeeded()
     }
 
-    /** Gửi một gói video tới mọi client. Gọi từ luồng encoder. */
+    /** Send a video packet to all connected clients. Called from the encoder thread. */
     fun broadcast(packet: EncodedPacket) {
         if (packet.isConfig) {
             config = packet.data
@@ -178,7 +178,7 @@ class StreamServer(
                     gop += frame
                     gopBytes += frame.size
                 } else {
-                    // Quá lớn: bỏ, client mới sẽ phải chờ keyframe kế tiếp.
+                    // Too large: drop; new clients will wait for the next keyframe.
                     gop.clear()
                     gopBytes = 0
                 }
@@ -188,7 +188,7 @@ class StreamServer(
                 if (client.queue.offer(frame)) {
                     if (packet.isKeyFrame) client.waitingForKey = false
                 } else {
-                    // Client không theo kịp: bỏ các gói đang chờ, đợi keyframe mới.
+                    // Client falling behind: drop queued packets and wait for the next keyframe.
                     client.queue.clear()
                     client.waitingForKey = true
                     needKey = true
@@ -230,7 +230,7 @@ class StreamServer(
 
         val hello = WebSocket.frame(WebSocket.OP_TEXT, helloJson())
         val client = synchronized(lock) {
-            // Gửi trước nhóm khung đang giữ, rồi mới nhận gói mới: không sót và không trùng gói.
+            // Flush retained GOP before enqueueing live packets so nothing is missed or duplicated.
             Client(socket, output, listOf(hello) + gop).also {
                 it.waitingForKey = gop.isEmpty()
                 clients += it
@@ -274,7 +274,7 @@ class StreamServer(
 
     private fun serveFile(output: OutputStream, request: Request) {
         val name = request.path.trimStart('/').ifEmpty { "index.html" }
-        // Chặn đường dẫn kiểu ../ ra ngoài thư mục web.
+        // Block path traversal outside the web assets directory.
         val body = if (name.contains("..")) null else runCatching { assets.open("web/$name").use { it.readBytes() } }.getOrNull()
         val header = if (body == null) {
             "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -303,7 +303,7 @@ class StreamServer(
         val headers: Map<String, String>,
     )
 
-    /** Đọc dòng yêu cầu và header. Đọc từng byte để không ăn mất frame WebSocket theo sau. */
+    /** Read HTTP request line and headers byte-by-byte so following WebSocket frames are not consumed. */
     private fun readRequest(input: InputStream): Request? {
         val lines = mutableListOf<String>()
         val line = ByteArrayOutputStream()
@@ -335,7 +335,7 @@ class StreamServer(
     private inner class Client(
         private val socket: Socket,
         private val output: OutputStream,
-        /** Các frame gửi đầu tiên (hello + nhóm khung đang giữ), trước hàng đợi. */
+        /** Initial frames (hello + retained GOP) sent ahead of the live queue. */
         private val initial: List<ByteArray>,
     ) {
         val queue = ArrayBlockingQueue<ByteArray>(CLIENT_QUEUE)

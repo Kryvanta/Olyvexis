@@ -24,17 +24,17 @@ import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
 /**
- * Shizuku UserService: chạy trong một tiến trình riêng do Shizuku tạo (`dev.kryvanta.olyvexis:shell`),
- * với uid shell.
+ * Shizuku UserService: runs in a separate process spawned by Shizuku (`dev.kryvanta.olyvexis:shell`)
+ * under the shell UID.
  *
- * Shizuku truyền vào một [Context] (từ API 13). Không dùng nó trực tiếp để gọi dịch vụ hệ thống
- * mà bọc trong [ShellContext], vì hệ thống đòi tên gói khớp với uid shell.
+ * Shizuku passes a [Context] (since API 13). Do not pass it directly to system services; wrap it
+ * in [ShellContext] because system services require the package name to match the shell UID.
  */
 class ShellService(context: Context) : IShellService.Stub() {
     private val shellContext = ShellContext(context)
     private val displays = ConcurrentHashMap<Int, VirtualDisplay>()
 
-    /** DisplayManager dùng [ShellContext]. Constructor DisplayManager(Context) bị ẩn nên gọi qua reflection. */
+    /** DisplayManager backed by [ShellContext]. DisplayManager(Context) is hidden, so invoke via reflection. */
     private val displayManager: DisplayManager by lazy {
         val ctor = DisplayManager::class.java.getDeclaredConstructor(Context::class.java)
         ctor.isAccessible = true
@@ -42,8 +42,8 @@ class ShellService(context: Context) : IShellService.Stub() {
     }
 
     /**
-     * InputManager ẩn để tiêm sự kiện (shell có quyền INJECT_EVENTS). Từ Android 14 hàm nằm ở
-     * InputManagerGlobal; trước đó ở InputManager.getInstance().
+     * Hidden InputManager for event injection (shell holds INJECT_EVENTS). On Android 14+ it lives on
+     * InputManagerGlobal; earlier versions use InputManager.getInstance().
      */
     private val injector: Pair<Any, Method> by lazy {
         val manager = runCatching {
@@ -70,7 +70,7 @@ class ShellService(context: Context) : IShellService.Stub() {
 
     override fun injectKeyEvent(displayId: Int, event: KeyEvent): Boolean = inject(displayId, event)
 
-    /** MotionEvent.setActionButton bị ẩn; gọi được trong tiến trình shell. */
+    /** MotionEvent.setActionButton is hidden; callable from the shell process. */
     private val setActionButton: Method? by lazy {
         runCatching { MotionEvent::class.java.getMethod("setActionButton", Int::class.javaPrimitiveType) }.getOrNull()
     }
@@ -119,9 +119,8 @@ class ShellService(context: Context) : IShellService.Stub() {
     }
 
     /**
-     * ClipboardManager gắn với ShellContext (tên gói com.android.shell). Không dùng
-     * getSystemService: nó tạo manager theo context gốc (tên gói của app) và hệ thống từ chối vì
-     * không khớp uid shell. Constructor ClipboardManager(Context, Handler) bị ẩn.
+     * ClipboardManager bound to ShellContext (package com.android.shell). Avoid getSystemService:
+     * it binds to the app context package name and system rejects it due to UID mismatch.
      */
     private val clipboard: ClipboardManager? by lazy {
         runCatching {
@@ -134,12 +133,12 @@ class ShellService(context: Context) : IShellService.Stub() {
     }
 
     override fun injectText(displayId: Int, text: String): Boolean {
-        // Ký tự ASCII gõ bằng phím thật (app nào cũng hiểu).
+        // Type ASCII characters directly via key events.
         val map = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
         val events = map.getEvents(text.toCharArray())
         if (events != null) return events.all { inject(displayId, it) }
-        // Chữ khác (tiếng Việt có dấu...): Android không cho tiêm KeyEvent ACTION_MULTIPLE nữa, nên
-        // đặt chữ vào clipboard rồi gửi phím PASTE, giống scrcpy. Clipboard của máy bị ghi đè.
+        // Non-ASCII characters (e.g. accented Vietnamese): Android no longer allows ACTION_MULTIPLE
+        // KeyEvents, so place text on the clipboard and send PASTE (overwrites device clipboard).
         val cm = clipboard ?: return false
         return try {
             cm.setPrimaryClip(ClipData.newPlainText("Olyvexis", text))
@@ -175,9 +174,8 @@ class ShellService(context: Context) : IShellService.Stub() {
         surface: Surface?,
         systemDecorations: Boolean,
     ): Int {
-        // Thử bộ cờ đầy đủ trước; nếu bị từ chối (Android cũ, ROM lạ, hoặc thiếu quyền
-        // ADD_TRUSTED_DISPLAY) thì bỏ dần các cờ ẩn. Màn hình không TRUSTED có thể không mở được
-        // app khác lên, nhưng vẫn hơn là không tạo được gì.
+        // Try the full flag set first; if rejected (older Android, custom ROM, or missing
+        // ADD_TRUSTED_DISPLAY), progressively drop hidden flags.
         val attempts = listOf(
             virtualDisplayFlags(systemDecorations),
             FLAG_OWN_CONTENT_ONLY or FLAG_SUPPORTS_TOUCH or FLAG_DESTROY_CONTENT_ON_REMOVAL or FLAG_TRUSTED,
@@ -216,20 +214,20 @@ class ShellService(context: Context) : IShellService.Stub() {
     }
 
     override fun startActivityOnDisplay(component: String, displayId: Int, freeform: Boolean): ShellResult {
-        // Dùng `am start` với quyền shell để tương thích ổn định qua mọi phiên bản Android 11–17.
+        // Use `am start` as shell for consistent behavior across Android 11-17.
         val mode = if (freeform) " --windowingMode $WINDOWING_MODE_FREEFORM" else ""
         return runShell("am start --display $displayId$mode -n $component", 10_000)
     }
 
     override fun launchAppInWindow(component: String, displayId: Int): ShellResult {
         val pkg = component.substringBefore('/')
-        // App đã chạy trên điện thoại: `am start --display` chỉ đưa task cũ lên ở màn hình cũ
-        // (vd. Chrome), nên chuyển task sang màn hình cửa sổ trước.
+        // If the app is already running on the phone, `am start --display` just brings up its old
+        // task on the phone (e.g. Chrome), so move any existing task to this display first.
         moveTasksToDisplay(pkg, displayId)
-        // Toàn màn hình trong màn hình ảo của cửa sổ (không để hệ thống mở thành cửa sổ nổi).
+        // Fullscreen inside the window's own virtual display (do not let system wrap it as freeform).
         val result = runShell("am start --display $displayId --windowingMode 1 -n $component", 10_000)
-        // App có màn hình chờ (splash) tự mở activity chính, activity đó có thể nhảy về task cũ
-        // trên điện thoại (vd. App Market). Kiểm tra vài lần và kéo về cửa sổ.
+        // Apps with a splash screen may launch their main activity onto the existing phone task
+        // (e.g. App Market). Poll briefly and move any matching task back to the virtual display.
         repeat(4) {
             Thread.sleep(350)
             moveTasksToDisplay(pkg, displayId)
@@ -237,7 +235,7 @@ class ShellService(context: Context) : IShellService.Stub() {
         return result
     }
 
-    /** Chuyển mọi task của [pkg] đang nằm trên màn hình điện thoại (display 0) sang [displayId]. */
+    /** Move all tasks of [pkg] currently on the phone display (display 0) to [displayId]. */
     private fun moveTasksToDisplay(pkg: String, displayId: Int) {
         val list = runShell("am stack list", 5_000).stdout
         var rootId = -1
@@ -261,10 +259,10 @@ class ShellService(context: Context) : IShellService.Stub() {
     }
 
     private fun virtualDisplayFlags(systemDecorations: Boolean): Int {
-        // Không có FLAG_PUBLIC: màn hình riêng (private) của shell. Khi bật
-        // force_desktop_mode_on_external_displays (cách qua cáp), Android áp chế độ desktop cho mọi
-        // màn hình phụ công khai: gắn launcher + thanh điều hướng, mở app thành cửa sổ nổi bên trong
-        // cửa sổ của Olyvexis. Màn hình riêng thì không bị; shell là chủ nên vẫn mở app lên được.
+        // Omit FLAG_PUBLIC to keep the display private to shell. When
+        // force_desktop_mode_on_external_displays is enabled (wired mode), Android forces desktop
+        // mode (launcher + nav bar + freeform windows) on all public secondary displays. Keeping it
+        // private avoids that while shell can still launch apps onto it.
         var flags = FLAG_OWN_CONTENT_ONLY or FLAG_SUPPORTS_TOUCH or
             FLAG_DESTROY_CONTENT_ON_REMOVAL or FLAG_TRUSTED
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags = flags or FLAG_OWN_DISPLAY_GROUP
@@ -282,7 +280,7 @@ class ShellService(context: Context) : IShellService.Stub() {
         val process = ProcessBuilder("sh", "-c", command).start()
         process.outputStream.close()
 
-        // Đọc stdout và stderr song song để tiến trình không bị nghẽn khi bộ đệm đầy.
+        // Drain stdout and stderr concurrently so the process does not block on a full pipe buffer.
         var stdout = ""
         var stderr = ""
         val outReader = thread(name = "shell-stdout") { stdout = process.inputStream.bufferedReader().readText() }
@@ -306,7 +304,7 @@ class ShellService(context: Context) : IShellService.Stub() {
     private companion object {
         const val TAG = "Olyvexis/Shell"
 
-        // Cờ VIRTUAL_DISPLAY_FLAG_* của DisplayManager (nhiều cờ bị ẩn khỏi SDK).
+        // DisplayManager VIRTUAL_DISPLAY_FLAG_* constants (several are hidden from the SDK).
         const val FLAG_PUBLIC = 1 shl 0
         const val FLAG_OWN_CONTENT_ONLY = 1 shl 3
         const val FLAG_SUPPORTS_TOUCH = 1 shl 6
@@ -321,10 +319,10 @@ class ShellService(context: Context) : IShellService.Stub() {
 
         val ROOT_TASK = Regex("""RootTask id=(\d+) .*displayId=(\d+)""")
 
-        // InputManager.INJECT_INPUT_EVENT_MODE_ASYNC (ẩn).
+        // InputManager.INJECT_INPUT_EVENT_MODE_ASYNC (hidden).
         const val INJECT_MODE_ASYNC = 0
 
-        // WindowConfiguration.WINDOWING_MODE_FREEFORM (ẩn).
+        // WindowConfiguration.WINDOWING_MODE_FREEFORM (hidden).
         const val WINDOWING_MODE_FREEFORM = 5
     }
 }

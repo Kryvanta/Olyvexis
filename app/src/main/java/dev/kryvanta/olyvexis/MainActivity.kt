@@ -53,8 +53,8 @@ import dev.kryvanta.olyvexis.ui.enterKey
 import kotlinx.coroutines.launch
 
 /**
- * Điện thoại (theo iDesk): một màn hình trackpad duy nhất; Ứng dụng, Laptop, Cài đặt, Shizuku là
- * các bảng trượt. Cắm màn hình ngoài thì desktop tự mở lên đó.
+ * Phone UI (inspired by iDesk): single trackpad controller screen with Apps, Laptop, Settings, and
+ * Shizuku modal sheets. Automatically launches on external display when plugged in.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Người dùng có thể vừa bật Shizuku hoặc cấp quyền trong app Shizuku.
+        // Refresh in case the user just enabled Shizuku or granted permission.
         ShizukuManager.refresh()
     }
 }
@@ -87,7 +87,7 @@ private fun Phone() {
     var sheet by rememberSaveable { mutableStateOf(Sheet.None) }
     var welcome by rememberSaveable { mutableStateOf(!Welcome.seen(context)) }
     var preview by rememberSaveable { mutableStateOf(false) }
-    /** Màn hình đã tự mở desktop lên (để bấm Dừng thì không tự mở lại cho tới khi cắm lại cáp). */
+    /** Display ID already auto-started in this connection so stopping doesn't immediately relaunch. */
     var autoStartedFor by remember { mutableIntStateOf(-1) }
 
     val external = displayMode as? DisplayMode.External
@@ -95,7 +95,7 @@ private fun Phone() {
     val streamRunning = stream as? StreamState.Running
     val desktopRunning = cableRunning != null || streamRunning != null
 
-    // Cắm màn hình là desktop hiện lên, như iDesk/DeX.
+    // Auto-start desktop when an external display is connected.
     LaunchedEffect(external?.displayId, shizuku) {
         val ext = external ?: run { autoStartedFor = -1; return@LaunchedEffect }
         if (shizuku == ShizukuState.Ready && cable is CableState.Idle && autoStartedFor != ext.displayId) {
@@ -105,7 +105,7 @@ private fun Phone() {
     }
 
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        StreamService.start(context) // không có quyền thông báo thì vẫn phát, chỉ không hiện thông báo
+        StreamService.start(context) // Stream still runs even if notification permission is denied.
     }
     val startStream = {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&

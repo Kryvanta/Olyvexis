@@ -31,12 +31,12 @@ sealed interface StreamState {
         val height: Int,
         val port: Int,
         val pin: String,
-        /** Các IPv4 trong mạng nội bộ (Wi-Fi, điểm phát Wi-Fi, chia sẻ qua USB...). Rỗng nếu không có. */
+        /** Local IPv4 addresses (Wi-Fi, hotspot, USB tethering). Empty if none. */
         val ips: List<String>,
         val clients: Int,
-        /** Máy có freeform của hệ thống không (chỉ để biết; cửa sổ do Olyvexis tự vẽ nên không cần). */
+        /** Whether system freeform is supported (informational; Olyvexis draws its own windows). */
         val freeform: Boolean,
-        /** Khung hình/giây encoder đang dùng (60, hoặc 30 nếu encoder không chạy nổi 60). */
+        /** Active encoder frame rate (60, or 30 if the encoder cannot sustain 60). */
         val frameRate: Int,
         val httpsPort: Int?,
     ) : StreamState {
@@ -49,15 +49,15 @@ sealed interface StreamState {
 }
 
 /**
- * Một phiên Wi-Fi: màn hình ảo -> VideoEncoder (H.264) -> StreamServer -> trình duyệt.
- * Chỉ có một phiên mỗi lúc. StreamService giữ cho phiên chạy khi app vào nền.
+ * Single Wi-Fi streaming session: virtual display -> VideoEncoder (H.264) -> StreamServer -> browser.
+ * Only one session runs at a time. StreamService keeps it alive in the background.
  */
 object StreamSession {
     private const val TAG = "Olyvexis/Session"
 
     /**
-     * Kích thước desktop: Full HD như DeX nếu encoder của máy chạy được, không thì 1280x720.
-     * Mật độ 160 dpi (1 dp = 1 px) cho giao diện dày như trên máy tính.
+     * Desktop resolution: Full HD if the encoder supports it, otherwise 1280x720.
+     * 160 dpi (1 dp = 1 px) for desktop-grade UI density.
      */
     private val SIZES = listOf(1920 to 1080, 1280 to 720)
     const val DPI = 160
@@ -79,7 +79,7 @@ object StreamSession {
         try {
             val pin = Random.nextInt(0, 10_000).toString().padStart(4, '0')
             val caps = DeviceCapabilities.detect(context).also { capabilities = it }
-            // Ưu tiên Full HD nếu encoder chạy được 30 khung/giây trở lên.
+            // Prefer Full HD if the encoder can handle at least 30 fps.
             val (width, height, frameRate) = SIZES.firstNotNullOfOrNull { (w, h) ->
                 VideoEncoder.supportedFrameRate(w, h)?.let { Triple(w, h, it) }
             } ?: error("Máy không có bộ mã hoá H.264 chạy được 1280x720")
@@ -98,7 +98,7 @@ object StreamSession {
                 onClientsChanged = { n ->
                     _state.update { if (it is StreamState.Running) it.copy(clients = n) else it }
                 },
-                // Chuột/bàn phím từ trình duyệt -> màn hình desktop.
+                // Mouse/keyboard events from browser -> desktop display.
                 onClientMessage = { input?.onMessage(it) },
             ).also { server = it }
             srv.start()
@@ -111,7 +111,7 @@ object StreamSession {
                 onResizeRequested = { w, h -> scope.launch { resize(w, h) } },
             ).also { ActiveInput.current = it }
             enc.start(srv::broadcast)
-            // Mở giao diện desktop (thanh tác vụ, cửa sổ) lên màn hình vừa tạo.
+            // Launch desktop UI (taskbar, windows) on the newly created display.
             val desktop = vd.launch(ComponentName(context, DesktopActivity::class.java), freeform = false)
             if (!desktop.isSuccess || desktop.stdout.contains("Error")) {
                 error("Không mở được desktop: ${desktop.stdout} ${desktop.stderr}".trim())
@@ -136,7 +136,7 @@ object StreamSession {
         }
     }
 
-    /** Đổi kích thước màn hình ảo theo cửa sổ trình duyệt (làm tròn chẵn và giới hạn an toàn). */
+    /** Resize the virtual display to match the browser viewport (rounded to even, safely clamped). */
     suspend fun resize(requestedWidth: Int, requestedHeight: Int) = mutex.withLock {
         val cur = _state.value as? StreamState.Running ?: return@withLock
         val vd = display ?: return@withLock
@@ -178,7 +178,7 @@ object StreamSession {
         if (ActiveInput.current === input) ActiveInput.current = null
         input?.close()
         input = null
-        // Giải phóng màn hình ảo trước, để nó không còn vẽ vào surface của encoder.
+        // Release the virtual display first so it stops rendering into the encoder surface.
         display?.release()
         display = null
         encoder?.stop()
@@ -187,7 +187,7 @@ object StreamSession {
         server = null
     }
 
-    /** Mở app trong một cửa sổ trên desktop. */
+    /** Open an app in a desktop window. */
     fun openWindow(app: LaunchableApp) {
         check(_state.value is StreamState.Running) { "Phiên chưa chạy" }
         DesktopController.open(app)

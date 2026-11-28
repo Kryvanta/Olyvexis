@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Cài đặt trackpad được lưu lại (giống InputSettings của iDesk).
+ * Persistent trackpad settings.
  */
 object InputSettings {
     private const val PREFS = "input_settings"
@@ -71,8 +71,7 @@ object InputSettings {
 }
 
 /**
- * Đầu vào của phiên đang chạy (Wi-Fi hoặc qua cáp), để màn hình trackpad trên điện thoại biết
- * gửi thao tác vào đâu.
+ * Active session input target (Wi-Fi or wired), used by the phone trackpad screen to route events.
  */
 object ActiveInput {
     @Volatile var current: BrowserInput? = null

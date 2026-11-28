@@ -14,6 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-// "Olyvexis" chỉ là tên tạm.
 rootProject.name = "Olyvexis"
 include(":app")

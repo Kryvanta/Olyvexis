@@ -10,11 +10,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
 /**
- * Nhận biết máy có màn hình ngoài thật không và chọn [DisplayMode].
+ * Detects physical external displays and selects the appropriate [DisplayMode].
  *
- * Chỉ biết chắc khi màn hình đã cắm vào: không có cách tin cậy để biết trước cổng USB-C có
- * xuất hình (DisplayPort Alt Mode) hay không. Vd. Galaxy Z Flip5 ROM gốc không xuất hình,
- * ROM mod thì có ("Màn hình HDMI" 2560x1600).
+ * External display capability can only be confirmed when connected: there is no reliable way to
+ * probe USB-C DisplayPort Alt Mode beforehand (e.g. stock Galaxy Z Flip5 disables it, while
+ * modified ROMs expose "HDMI Screen" 2560x1600).
  */
 class DisplayDetector(context: Context) {
     private val displayManager = context.getSystemService(DisplayManager::class.java)
@@ -34,7 +34,7 @@ class DisplayDetector(context: Context) {
         )
     }
 
-    /** Phát lại [DisplayMode] mỗi khi cắm/rút màn hình hoặc DeX bật/tắt. */
+    /** Re-emits [DisplayMode] whenever an external display connects/disconnects or DeX toggles. */
     fun modes(): Flow<DisplayMode> = callbackFlow {
         val listener = object : DisplayManager.DisplayListener {
             override fun onDisplayAdded(displayId: Int) { trySend(currentMode()) }
@@ -47,9 +47,9 @@ class DisplayDetector(context: Context) {
     }
 
     /**
-     * Màn hình cắm ngoài (TYPE_EXTERNAL) hoặc Miracast (TYPE_WIFI). Bỏ qua màn hình tích hợp thứ
-     * hai của máy gập, màn hình ảo của Olyvexis và của DeX. Display.getType() bị ẩn nên gọi qua
-     * reflection; nếu không gọi được thì dựa vào cờ PRESENTATION và tên.
+     * External (TYPE_EXTERNAL) or Miracast (TYPE_WIFI) display, ignoring foldable secondary built-in
+     * screens, Olyvexis virtual displays, and DeX. Display.getType() is hidden, so invoke via
+     * reflection with PRESENTATION flag + name fallback.
      */
     private fun isRealExternal(display: Display): Boolean {
         val type = typeOf(display)
@@ -58,7 +58,7 @@ class DisplayDetector(context: Context) {
         return presentation && !display.name.startsWith(VirtualDisplayController.DISPLAY_NAME) && display.name != "Desktop"
     }
 
-    /** Tên chế độ desktop của hãng nếu nó đang chạy (đang giữ màn hình ngoài), không thì null. */
+    /** Name of the OEM desktop mode if currently active on an external display, otherwise null. */
     private fun vendorDesktop(displays: Array<Display>): String? {
         for (d in displays) {
             if (typeOf(d) != TYPE_VIRTUAL || d.state != Display.STATE_ON) continue
@@ -78,7 +78,7 @@ class DisplayDetector(context: Context) {
         runCatching { Display::class.java.getMethod("getType").invoke(display) as Int }.getOrNull()
 
     private companion object {
-        // Display.TYPE_* (ẩn)
+        // Display.TYPE_* (hidden)
         const val TYPE_EXTERNAL = 2
         const val TYPE_WIFI = 3
         const val TYPE_VIRTUAL = 5

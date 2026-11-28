@@ -7,15 +7,14 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 
 object NetworkInfo {
-    /** Tiền tố tên giao diện mạng nội bộ: Wi-Fi, điểm phát Wi-Fi, chia sẻ qua USB/Ethernet. */
+    /** Local network interface prefixes: Wi-Fi, hotspot, USB/Ethernet tethering. */
     private val LAN_PREFIXES = listOf("wlan", "swlan", "ap", "softap", "rndis", "usb", "eth", "ncm")
 
     /**
-     * Các IPv4 trong mạng nội bộ mà laptop/TV có thể kết nối tới, Wi-Fi đứng đầu.
+     * Local IPv4 addresses reachable from a laptop/TV, with Wi-Fi listed first.
      *
-     * Không lấy theo "mạng đang hoạt động", vì khi bật VPN thì đó là VPN. Có cả điểm phát
-     * Wi-Fi của chính điện thoại: laptop bắt Wi-Fi của điện thoại là cách dùng phổ biến khi
-     * không có router, và giao diện đó (ap0/swlan0) không hiện trong ConnectivityManager.
+     * Avoids querying only the "active network" because VPNs mask the LAN interface. Includes the
+     * phone's own Wi-Fi hotspot (ap0/swlan0), which ConnectivityManager omits.
      */
     @Suppress("DEPRECATION")
     fun localIpv4s(context: Context): List<String> {

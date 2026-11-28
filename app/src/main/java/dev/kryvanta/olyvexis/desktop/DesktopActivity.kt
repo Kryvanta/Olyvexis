@@ -72,20 +72,20 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Giao diện desktop trên màn hình lớn (màn hình ảo của phiên Wi-Fi; về sau cả màn hình ngoài).
+ * Desktop UI hosted on the secondary display (Wi-Fi virtual display or physical external display).
  *
- * Giao diện kiểu Samsung DeX (xem DexUi.kt): hình nền có icon lối tắt, cửa sổ app
- * ([DesktopController]), thanh tác vụ có icon app và khay hệ thống, ngăn ứng dụng dạng lưới.
- * Activity này được mở lên màn hình desktop bằng ShellService, nên phải exported.
+ * Renders wallpaper, desktop shortcuts, app windows ([DesktopController]), taskbar with pinned/running
+ * apps and system tray, and the app drawer. Launched onto the target display via ShellService, so
+ * it must be exported.
  */
 class DesktopActivity : ComponentActivity() {
-    /** Màn hình desktop này được mở lên. */
+    /** Target display ID where this desktop is hosted. */
     private var homeDisplayId = Display.INVALID_DISPLAY
 
     /**
-     * Rút cáp HDMI: Android chuyển activity của màn hình vừa mất về màn hình điện thoại. Desktop
-     * không bao giờ được hiện trên điện thoại, nên tự đóng khi màn hình của nó bị gỡ hoặc khi bị
-     * chuyển sang màn hình khác.
+     * On HDMI unplug, Android moves activities from the removed display back to the phone screen.
+     * DesktopActivity must never appear on the phone, so close immediately if its display is removed
+     * or it is reparented to another display.
      */
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayRemoved(displayId: Int) {
@@ -119,13 +119,18 @@ class DesktopActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         homeDisplayId = display?.displayId ?: Display.INVALID_DISPLAY
         if (homeDisplayId == Display.DEFAULT_DISPLAY) {
-            finish() // không mở desktop trên màn hình điện thoại
+            finish() // never show desktop on the phone screen
             return
         }
         getSystemService(DisplayManager::class.java).registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         setContent {
-            // Phóng giao diện theo màn hình: màn rộng hơn 1920 dp (vd. Honor HDMI 2560x1600 @ 160
-            // dpi) thì phóng lên cho bằng desktop Full HD, giống DeX; không thì giữ mật độ của màn hình.
+            // Scale UI for ultra-wide/high-res external displays (>1920dp, e.g. Honor HDMI 2560x1600 @ 160dpi)
+            // to match Full HD desktop proportions; otherwise keep the display's native density.
             val base = LocalDensity.current
             val widthPx = resources.displayMetrics.widthPixels
             val scale = maxOf(base.density, widthPx / 1920f)
@@ -135,22 +140,22 @@ class DesktopActivity : ComponentActivity() {
                 }
             }
         }
-        // Dừng phiên qua cáp thì đóng desktop trên màn hình ngoài.
+        // Stopping the wired session closes the desktop on the external display.
         val startCount = DesktopController.finishRequests.value
         lifecycleScope.launch {
             DesktopController.finishRequests.collect { if (it != startCount) finish() }
         }
     }
 
-    /** Có phím nào khác được nhấn trong lúc giữ Meta không (để Meta nhấn-nhả riêng mới mở ngăn). */
+    /** Tracks whether another key was pressed while Meta is held (so only a bare Meta tap toggles the drawer). */
     private var metaUsedWithOther = false
 
     /**
-     * Phím tắt kiểu Android/DeX, còn lại đi vào cửa sổ trên cùng:
-     * - Meta (nhấn rồi nhả): mở/đóng ngăn ứng dụng
-     * - Meta+D: thu nhỏ tất cả; Meta+↑: phóng to; Meta+←/→: bám nửa trái/phải
-     * - Alt+F4: đóng cửa sổ; Alt+Tab (nếu trình duyệt cho qua): chuyển cửa sổ
-     * - Esc: đóng ngăn ứng dụng / menu
+     * Desktop keyboard shortcuts (remaining keys go to the top-most window):
+     * - Meta (tap): toggle app drawer
+     * - Meta+D: minimize all; Meta+Up: maximize; Meta+Left/Right: snap left/right half
+     * - Alt+F4: close window; Alt+Tab (when forwarded by browser): switch window
+     * - Esc: close app drawer / overlays
      */
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -164,10 +169,36 @@ class DesktopActivity : ComponentActivity() {
             }
             return true
         }
+        if (DesktopController.lockOpen.value) {
+            if (down && (code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_SPACE)) {
+                DesktopController.lockOpen.value = false
+            }
+            return true
+        }
         val top = DesktopController.topWindow()
         if (event.isMetaPressed && down) {
             metaUsedWithOther = true
             when (code) {
+                KeyEvent.KEYCODE_SPACE -> {
+                    val next = !DesktopController.spotlightOpen.value
+                    DesktopController.closeOverlays()
+                    DesktopController.spotlightOpen.value = next
+                }
+                KeyEvent.KEYCODE_SLASH -> {
+                    val next = !DesktopController.shortcutsOpen.value
+                    DesktopController.closeOverlays()
+                    DesktopController.shortcutsOpen.value = next
+                }
+                KeyEvent.KEYCODE_V -> if (event.isShiftPressed) {
+                    val next = !DesktopController.clipboardOpen.value
+                    DesktopController.closeOverlays()
+                    DesktopController.clipboardOpen.value = next
+                }
+                KeyEvent.KEYCODE_L -> DesktopController.lockDesktop()
+                KeyEvent.KEYCODE_1 -> DesktopController.switchWorkspace(1)
+                KeyEvent.KEYCODE_2 -> DesktopController.switchWorkspace(2)
+                KeyEvent.KEYCODE_3 -> DesktopController.switchWorkspace(3)
+                KeyEvent.KEYCODE_4 -> DesktopController.switchWorkspace(4)
                 KeyEvent.KEYCODE_D -> DesktopController.minimizeAll()
                 KeyEvent.KEYCODE_DPAD_UP -> top?.let { DesktopController.snap(it.id, DesktopController.Snap.Top) }
                 KeyEvent.KEYCODE_DPAD_DOWN -> top?.let { DesktopController.minimize(it.id) }
@@ -185,14 +216,16 @@ class DesktopActivity : ComponentActivity() {
             DesktopController.cycle()
             return true
         }
-        if (DesktopController.drawerOpen.value || DesktopController.contextMenu.value != null || DesktopController.quickPanelOpen.value) {
+        if (DesktopController.drawerOpen.value || DesktopController.spotlightOpen.value ||
+            DesktopController.shortcutsOpen.value || DesktopController.settingsOpen.value ||
+            DesktopController.clipboardOpen.value || DesktopController.contextMenu.value != null ||
+            DesktopController.quickPanelOpen.value
+        ) {
             if (down && code == KeyEvent.KEYCODE_ESCAPE) {
-                DesktopController.drawerOpen.value = false
-                DesktopController.contextMenu.value = null
-                DesktopController.quickPanelOpen.value = false
+                DesktopController.closeOverlays()
                 return true
             }
-            return super.dispatchKeyEvent(event) // gõ vào ô tìm kiếm của ngăn ứng dụng
+            return super.dispatchKeyEvent(event) // typing into app drawer / search field
         }
         if (top == null) return super.dispatchKeyEvent(event)
         DesktopController.forwardKey(top.id, event)
@@ -201,8 +234,8 @@ class DesktopActivity : ComponentActivity() {
 }
 
 /**
- * TextureView (không dùng SurfaceView: nhiều SurfaceView chồng nhau thì thứ tự vẽ không đúng)
- * nhận hình từ màn hình ảo của cửa sổ, và chuyển chạm/chuột vào màn hình đó.
+ * TextureView (instead of SurfaceView, which mis-orders overlapping surfaces) rendering the
+ * window's virtual display and forwarding touch/mouse input into it.
  */
 @SuppressLint("ClickableViewAccessibility")
 @Composable
@@ -234,7 +267,7 @@ internal fun AppSurface(window: AppWindow) {
 
                 val forward = { ev: MotionEvent ->
                     if (ev.actionMasked == MotionEvent.ACTION_DOWN) DesktopController.focus(window.id)
-                    // Toạ độ trong view -> toạ độ trên màn hình ảo (khác nhau khi đang kéo đổi cỡ).
+                    // View coordinates -> virtual display coordinates (differ during live resize).
                     val current = DesktopController.windows.value.firstOrNull { it.id == window.id }
                     val copy = MotionEvent.obtain(ev)
                     if (current != null && width > 0 && height > 0) {
@@ -245,12 +278,12 @@ internal fun AppSurface(window: AppWindow) {
                     true
                 }
                 setOnTouchListener { _, ev -> forward(ev) }
-                // Chuột: di chuột (hover), cuộn bánh xe.
+                // Mouse: hover and wheel scroll.
                 setOnGenericMotionListener { _, ev -> forward(ev) }
             }
         },
         update = { view ->
-            // Sau khi đổi kích thước xong, buffer phải theo kích thước mới của màn hình ảo.
+            // Update buffer size to match the resized virtual display.
             view.surfaceTexture?.setDefaultBufferSize(window.width, window.height)
         },
     )

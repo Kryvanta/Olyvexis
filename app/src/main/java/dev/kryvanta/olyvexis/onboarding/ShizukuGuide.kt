@@ -58,7 +58,7 @@ private val wirelessStepRes = listOf(
     R.string.shizuku_step_6,
 )
 
-/** Nội dung bước "Shizuku" của màn hình thiết lập, thay đổi theo [state]. */
+/** Content for the Shizuku setup step, varying by [state]. */
 @Composable
 fun ShizukuStepContent(state: ShizukuState) {
     val context = LocalContext.current
@@ -180,7 +180,7 @@ fun ShizukuStepContent(state: ShizukuState) {
     }
 }
 
-/** Chạy thử một lệnh đọc cài đặt để chắc chắn ShellService hoạt động. */
+/** Runs a quick settings read command to verify ShellService is working. */
 @Composable
 private fun ShellTest() {
     val scope = rememberCoroutineScope()

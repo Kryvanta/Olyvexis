@@ -1,18 +1,18 @@
 package dev.kryvanta.olyvexis.input
 
-/** Thao tác chuột/bàn phím, chung cho trackpad trên điện thoại và trình duyệt bên kia. */
+/** Mouse and keyboard input events shared between the phone trackpad and browser client. */
 sealed interface InputEvent {
-    /** Di chuột tương đối (trackpad). */
+    /** Relative pointer movement (trackpad). */
     data class PointerMove(val dx: Float, val dy: Float) : InputEvent
 
-    /** Đặt chuột tuyệt đối (trình duyệt), toạ độ theo màn hình đích. */
+    /** Absolute pointer position (browser), coordinates in target display pixels. */
     data class PointerAt(val x: Float, val y: Float) : InputEvent
 
     data class Button(val button: MouseButton, val pressed: Boolean) : InputEvent
 
     data class Scroll(val dx: Float, val dy: Float) : InputEvent
 
-    /** [keyCode] là KeyEvent.KEYCODE_*; [metaState] gồm Ctrl, Alt, Shift, Meta. */
+    /** [keyCode] is `KeyEvent.KEYCODE_*`; [metaState] combines Ctrl, Alt, Shift, and Meta. */
     data class Key(val keyCode: Int, val pressed: Boolean, val metaState: Int) : InputEvent
 
     data class Text(val text: String) : InputEvent

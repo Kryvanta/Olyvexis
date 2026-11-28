@@ -1,10 +1,10 @@
 package dev.kryvanta.olyvexis.display
 
-/** Cách xuất hình mà app chọn. */
+/** Display output mode selected by the app. */
 sealed interface DisplayMode {
     /**
-     * Có màn hình ngoài thật (HDMI/DisplayPort qua USB-C, hoặc Miracast): mở desktop lên đó.
-     * [vendorDesktop]: chế độ desktop của hãng (Samsung DeX...) đang chạy và giữ màn hình ngoài.
+     * Physical external display (HDMI/DisplayPort over USB-C, or Miracast): open desktop there.
+     * [vendorDesktop]: OEM desktop mode (e.g. Samsung DeX) is running and holding the external display.
      */
     data class External(
         val displayId: Int,
@@ -14,6 +14,6 @@ sealed interface DisplayMode {
         val vendorDesktop: String? = null,
     ) : DisplayMode
 
-    /** Không có màn hình ngoài: tạo màn hình ảo và stream qua Wi-Fi. */
+    /** No external display: create a virtual display and stream over Wi-Fi. */
     data object VirtualOverWifi : DisplayMode
 }

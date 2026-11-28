@@ -19,8 +19,8 @@ import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 
 /**
- * Tạo chứng chỉ X.509 v3 tự ký (ECDSA P-256) trong bộ nhớ cho các IP nội bộ và `localhost`,
- * để trình duyệt mở `https://<ip-lan>:<port>` nhận được Secure Context và chạy được WebCodecs.
+ * Generates an in-memory self-signed X.509 v3 certificate (ECDSA P-256) for local IPs and
+ * `localhost`, so `https://<lan-ip>:<port>` provides a Secure Context for WebCodecs.
  */
 object SelfSignedTls {
 
@@ -36,15 +36,15 @@ object SelfSignedTls {
         val keyPair = kpg.generateKeyPair()
 
         val now = System.currentTimeMillis()
-        val notBefore = Date(now - 24L * 3600_000) // lùi 1 ngày tránh lệch giờ nhẹ giữa điện thoại và laptop
-        val notAfter = Date(now + 3650L * 24 * 3600_000) // 10 năm
+        val notBefore = Date(now - 24L * 3600_000) // backdate 1 day for minor clock skew
+        val notAfter = Date(now + 3650L * 24 * 3600_000) // 10 years
         val serial = BigInteger(63, SecureRandom()).abs().max(BigInteger.ONE)
 
         val algId = derSeq(derOid(1, 2, 840, 10045, 4, 3, 2)) // ecdsa-with-SHA256
         val name = derSeq(derSet(derSeq(derOid(2, 5, 4, 3), derUtf8("Olyvexis"))))
         val validity = derSeq(derUtcTime(notBefore), derUtcTime(notAfter))
 
-        // SubjectAltName: localhost + 127.0.0.1 + mọi IPv4 nội bộ hiện có
+        // SubjectAltName: localhost + 127.0.0.1 + all current local IPv4 addresses
         val sanItems = mutableListOf<ByteArray>()
         sanItems += derContextPrimitive(2, "localhost".toByteArray(Charsets.US_ASCII))
         val allIps = (listOf("127.0.0.1") + ips).distinct()

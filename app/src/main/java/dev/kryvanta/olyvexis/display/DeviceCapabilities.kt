@@ -5,11 +5,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 
-/** Khả năng của máy ảnh hưởng tới cách mở app lên desktop. */
+/** Device capabilities affecting how apps are launched onto the desktop. */
 data class DeviceCapabilities(
     /**
-     * Máy có cửa sổ tự do (freeform) của Android không. Không có thì app trên màn hình ảo mở
-     * toàn màn hình (vd. MagicOS 11, cả khi bật enable_freeform_support).
+     * Whether Android freeform windows are supported. When false, apps on the virtual display open
+     * fullscreen (e.g. MagicOS 11, even with `enable_freeform_support`).
      */
     val freeform: Boolean,
     val sdk: Int,
@@ -18,7 +18,7 @@ data class DeviceCapabilities(
     companion object {
         fun detect(context: Context): DeviceCapabilities {
             val feature = context.packageManager.hasSystemFeature(PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT)
-            // Tuỳ chọn nhà phát triển "Bật cửa sổ dạng tự do" (AOSP, Pixel). Có ROM bỏ qua cài đặt này.
+            // Developer option "Enable freeform windows" (AOSP/Pixel). Some OEM ROMs ignore this.
             val devSetting = Settings.Global.getInt(context.contentResolver, "enable_freeform_support", 0) != 0
             return DeviceCapabilities(
                 freeform = feature || devSetting,

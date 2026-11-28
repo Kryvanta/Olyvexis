@@ -15,17 +15,17 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /**
- * Chuột và bàn phím từ trình duyệt -> màn hình desktop.
+ * Browser mouse and keyboard -> desktop display.
  *
- * Tin nhắn JSON từ trang web (xem assets/web/index.html):
- * - `{"t":"m","a":"move|down|up","x":0..1,"y":0..1,"b":nút đang giữ,"btn":nút vừa đổi}` (b theo
- *   MouseEvent.buttons: 1 trái, 2 phải, 4 giữa, trùng giá trị MotionEvent.BUTTON_*)
- * - `{"t":"w","x":..,"y":..,"dx":..,"dy":..}` cuộn bánh xe (đơn vị pixel của trình duyệt)
- * - `{"t":"k","a":"down|up","code":"KeyA","m":phím bổ trợ (1 Shift, 2 Ctrl, 4 Alt, 8 Meta),"r":lặp}`
- * - `{"t":"txt","s":"ế"}` chữ do bộ gõ của máy tính tạo ra (tiếng Việt...)
+ * JSON messages from the web client (see assets/web/index.html):
+ * - `{"t":"m","a":"move|down|up","x":0..1,"y":0..1,"b":buttonsMask,"btn":changedButton}`
+ *   (`b` matches MouseEvent.buttons: 1 left, 2 right, 4 middle, same as MotionEvent.BUTTON_*)
+ * - `{"t":"w","x":..,"y":..,"dx":..,"dy":..}` wheel scroll in browser pixels
+ * - `{"t":"k","a":"down|up","code":"KeyA","m":modifiers (1 Shift, 2 Ctrl, 4 Alt, 8 Meta),"r":repeat}`
+ * - `{"t":"txt","s":"..."}` composed text from client IME
  *
- * Sự kiện vào màn hình desktop; DesktopActivity chuyển tiếp vào cửa sổ app bên dưới con trỏ
- * hoặc cửa sổ trên cùng (với phím).
+ * Events target the desktop display; DesktopActivity forwards them to the app window under the
+ * cursor or the top-most window (for keyboard events).
  */
 class BrowserInput(
     private val displayId: Int,
@@ -102,7 +102,7 @@ class BrowserInput(
             }
             "up" -> {
                 if (buttons == 0) return
-                // Tin theo trạng thái nút trình duyệt gửi kèm (đáng tin hơn tự cộng trừ).
+                // Trust the button state reported by the browser (more reliable than tracking locally).
                 buttons = newButtons and changed.inv()
                 val b = buttons
                 val dt = downTime
@@ -120,7 +120,7 @@ class BrowserInput(
     private fun wheel(msg: JSONObject) {
         val x = (msg.optDouble("x") * width).toFloat()
         val y = (msg.optDouble("y") * height).toFloat()
-        // Trình duyệt: dy > 0 là cuộn xuống, khoảng 100 px một nấc. Android: VSCROLL > 0 là cuộn lên.
+        // Browser: dy > 0 scrolls down (~100 px per detent). Android: VSCROLL > 0 scrolls up.
         val v = (-msg.optDouble("dy") / 100.0).toFloat().coerceIn(-10f, 10f)
         val h = (msg.optDouble("dx") / 100.0).toFloat().coerceIn(-10f, 10f)
         if (v == 0f && h == 0f) return
@@ -131,9 +131,9 @@ class BrowserInput(
     private var metaUsed = false
 
     /**
-     * Phím tắt của desktop, xử lý ngay ở đây chứ không đưa vào hệ thống: Android (nhất là từ 14)
-     * tự dùng phím Meta cho phím tắt của điện thoại, nên Meta không bao giờ tới được desktop.
-     * Trả về true nếu đã xử lý.
+     * Desktop shortcuts handled directly before the system intercepts them: Android (especially 14+)
+     * consumes Meta for phone shortcuts, so Meta would otherwise never reach the desktop.
+     * Returns true if handled.
      */
     private fun shortcut(keyCode: Int, down: Boolean, mods: Int): Boolean {
         val isMeta = keyCode == KeyEvent.KEYCODE_META_LEFT || keyCode == KeyEvent.KEYCODE_META_RIGHT
@@ -142,10 +142,16 @@ class BrowserInput(
                 if (!metaDown) metaUsed = false
                 metaDown = true
             } else {
-                // Chỉ bật/tắt ngăn khi thật sự đã thấy Meta được nhấn (trang web gửi "nhả phím"
-                // cho mọi phím bổ trợ khi mất focus, không được tính là một lần bấm Meta).
+                // Only toggle the drawer if Meta was actually pressed (browsers send keyup for all
+                // modifiers on blur, which must not count as a standalone Meta tap).
                 if (metaDown && !metaUsed) DesktopController.drawerOpen.value = !DesktopController.drawerOpen.value
                 metaDown = false
+            }
+            return true
+        }
+        if (DesktopController.lockOpen.value) {
+            if (down && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_SPACE)) {
+                DesktopController.lockOpen.value = false
             }
             return true
         }
@@ -154,6 +160,26 @@ class BrowserInput(
             if (down) {
                 metaUsed = true
                 when (keyCode) {
+                    KeyEvent.KEYCODE_SPACE -> {
+                        val next = !DesktopController.spotlightOpen.value
+                        DesktopController.closeOverlays()
+                        DesktopController.spotlightOpen.value = next
+                    }
+                    KeyEvent.KEYCODE_SLASH -> {
+                        val next = !DesktopController.shortcutsOpen.value
+                        DesktopController.closeOverlays()
+                        DesktopController.shortcutsOpen.value = next
+                    }
+                    KeyEvent.KEYCODE_V -> if (mods and 1 != 0) {
+                        val next = !DesktopController.clipboardOpen.value
+                        DesktopController.closeOverlays()
+                        DesktopController.clipboardOpen.value = next
+                    }
+                    KeyEvent.KEYCODE_L -> DesktopController.lockDesktop()
+                    KeyEvent.KEYCODE_1 -> DesktopController.switchWorkspace(1)
+                    KeyEvent.KEYCODE_2 -> DesktopController.switchWorkspace(2)
+                    KeyEvent.KEYCODE_3 -> DesktopController.switchWorkspace(3)
+                    KeyEvent.KEYCODE_4 -> DesktopController.switchWorkspace(4)
                     KeyEvent.KEYCODE_D -> DesktopController.minimizeAll()
                     KeyEvent.KEYCODE_DPAD_UP -> top?.let { DesktopController.snap(it.id, DesktopController.Snap.Top) }
                     KeyEvent.KEYCODE_DPAD_DOWN -> top?.let { DesktopController.minimize(it.id) }
@@ -170,12 +196,8 @@ class BrowserInput(
             }
             return true
         }
-        if (keyCode == KeyEvent.KEYCODE_ESCAPE && (DesktopController.drawerOpen.value || DesktopController.contextMenu.value != null || DesktopController.quickPanelOpen.value)) {
-            if (down) {
-                DesktopController.drawerOpen.value = false
-                DesktopController.contextMenu.value = null
-                DesktopController.quickPanelOpen.value = false
-            }
+        if (keyCode == KeyEvent.KEYCODE_ESCAPE && (DesktopController.drawerOpen.value || DesktopController.spotlightOpen.value || DesktopController.shortcutsOpen.value || DesktopController.settingsOpen.value || DesktopController.clipboardOpen.value || DesktopController.contextMenu.value != null || DesktopController.quickPanelOpen.value)) {
+            if (down) DesktopController.closeOverlays()
             return true
         }
         return false
@@ -202,14 +224,14 @@ class BrowserInput(
         queue.trySend { ShizukuManager.withShell(block) }
     }
 
-    // ------------------------------------------------------------ trackpad trên điện thoại
+    // ------------------------------------------------------------ phone trackpad
 
-    /** Con trỏ tương đối (trackpad): vị trí hiện tại trên desktop, tính bằng px. */
+    /** Relative cursor (trackpad): current position on desktop in pixels. */
     private var cursorX = width / 2f
     private var cursorY = height / 2f
     private var trackpadButtons = 0
 
-    /** Hiện con trỏ do desktop vẽ (trackpad/cáp); trình duyệt thì có con trỏ riêng nên không cần. */
+    /** Show desktop-drawn cursor (trackpad/wired); browsers draw their own cursor. */
     var drawCursor = false
 
     private fun mouseAt(action: String, newButtons: Int, changedIndex: Int) {
@@ -283,7 +305,7 @@ class BrowserInput(
     }
 }
 
-/** KeyboardEvent.code của trình duyệt -> KeyEvent.KEYCODE_* (bố cục vật lý, không phụ thuộc bộ gõ). */
+/** Browser KeyboardEvent.code -> Android KeyEvent.KEYCODE_* (physical layout, layout-independent). */
 object KeyMap {
     private val map: Map<String, Int> = buildMap {
         for (c in 'A'..'Z') put("Key$c", KeyEvent.KEYCODE_A + (c - 'A'))

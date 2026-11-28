@@ -38,7 +38,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -126,7 +125,7 @@ import java.util.Date
 import java.util.Locale
 
 private object DexTheme {
-    // Theo iDesk: kính mờ tối, nền cửa sổ xám 10%, thanh tiêu đề xám 20% (đang chọn) / 15%.
+    // Frosted dark glass palette: 10% gray window surface, 20% active / 15% inactive title bar.
     val taskbar = Color(0xD91C1C1E)
     val panelGlass = Color(0xF22C2C2E)
     val panelElevated = Color(0xFF3A3A3C)
@@ -142,10 +141,9 @@ private object DexTheme {
     val close = Color(0xFFFF5F57)
     val minimize = Color(0xFFFEBC2E)
     val maximize = Color(0xFF28C840)
-    val dotInactive = Color(0xFF595959)
 }
 
-/** Hình nền: 5 bộ gradient chéo như iDesk (chỉ số -1 là hình nền động theo giờ). */
+/** Wallpapers: 5 diagonal gradient presets (-1 selects the dynamic time-of-day wallpaper). */
 internal val WALLPAPERS = listOf(
     listOf(Color(0.06f, 0.10f, 0.22f), Color(0.18f, 0.10f, 0.30f), Color(0.05f, 0.22f, 0.30f)),
     listOf(Color(0.95f, 0.45f, 0.30f), Color(0.55f, 0.18f, 0.45f), Color(0.15f, 0.10f, 0.35f)),
@@ -183,10 +181,21 @@ private fun dynamicWallpaperColors(): List<Color> {
 @Composable
 internal fun Desktop() {
     val context = LocalContext.current
-    LaunchedEffect(Unit) { DesktopController.initPrefs(context) }
+    LaunchedEffect(Unit) {
+        DesktopController.initPrefs(context)
+        DesktopClipboard.startListening(context)
+    }
 
     val windows by DesktopController.windows.collectAsState()
+    val currentWorkspace by DesktopController.currentWorkspace.collectAsState()
     val drawerOpen by DesktopController.drawerOpen.collectAsState()
+    val spotlightOpen by DesktopController.spotlightOpen.collectAsState()
+    val shortcutsOpen by DesktopController.shortcutsOpen.collectAsState()
+    val settingsOpen by DesktopController.settingsOpen.collectAsState()
+    val clipboardOpen by DesktopController.clipboardOpen.collectAsState()
+    val lockOpen by DesktopController.lockOpen.collectAsState()
+    val stickyNoteOpen by DesktopController.stickyNoteOpen.collectAsState()
+    val stickyNoteText by DesktopController.stickyNoteText.collectAsState()
     val quickPanelOpen by DesktopController.quickPanelOpen.collectAsState()
     val switcherActive by DesktopController.switcherActive.collectAsState()
     val menu by DesktopController.contextMenu.collectAsState()
@@ -194,6 +203,8 @@ internal fun Desktop() {
     val wallpaper by DesktopController.wallpaper.collectAsState()
     val nightLight by DesktopController.nightLight.collectAsState()
     val brightness by DesktopController.brightness.collectAsState()
+    val showWidgets by DesktopController.showWidgets.collectAsState()
+    val autoHideTaskbar by DesktopController.autoHideTaskbar.collectAsState()
     val recentPkgs by DesktopController.recentPackages.collectAsState()
     val pinsVersion by DesktopController.pinsVersion.collectAsState()
     val toast by DesktopController.toastMessage.collectAsState()
@@ -222,13 +233,34 @@ internal fun Desktop() {
         val wasPinned = repository.isPinned(pkg)
         repository.togglePin(pkg, apps)
         DesktopController.pinsVersion.value += 1
-        DesktopController.showToast(if (wasPinned) "Đã bỏ ghim $label" else "Đã ghim $label lên Desktop & Thanh tác vụ")
+        DesktopController.showToast(
+            context.getString(if (wasPinned) R.string.desk_unpin_taskbar else R.string.desk_pin_taskbar) + ": $label",
+        )
+    }
+
+    fun openMoreMenu(mx: Int, my: Int) {
+        DesktopController.contextMenu.value = DesktopContextMenu(
+            x = mx,
+            y = my,
+            items = listOf(
+                context.getString(R.string.desk_menu_dynamic_wallpaper) to { DesktopController.setWallpaper(-1) },
+                (if (DesktopController.nightLight.value) context.getString(R.string.desk_menu_night_off)
+                else context.getString(R.string.desk_menu_night_on)) to { DesktopController.toggleNightLight() },
+                (if (DesktopController.showWidgets.value) context.getString(R.string.desk_widgets_off)
+                else context.getString(R.string.desk_widgets_on)) to { DesktopController.toggleWidgets() },
+                "" to {},
+                context.getString(R.string.desk_clipboard_title) to { DesktopController.clipboardOpen.value = true },
+                context.getString(R.string.desk_lock_action) to { DesktopController.lockDesktop() },
+                context.getString(R.string.desk_menu_shortcuts) to { DesktopController.shortcutsOpen.value = true },
+                "" to {},
+                context.getString(R.string.desk_menu_close_all) to { DesktopController.closeAll() },
+                context.getString(R.string.desk_quick_android_settings) to { DesktopController.openAndroidSettings(context) },
+            ),
+        )
     }
 
     BackHandler {
-        DesktopController.drawerOpen.value = false
-        DesktopController.quickPanelOpen.value = false
-        DesktopController.contextMenu.value = null
+        DesktopController.closeOverlays()
     }
 
     Box(
@@ -239,32 +271,38 @@ internal fun Desktop() {
                 DesktopController.desktopWidth = it.width
                 DesktopController.desktopHeight = it.height
             }
-            .pointerInput(wallpaper) {
+            .pointerInput(context) {
                 awaitPointerEventScope {
                     while (true) {
                         val e = awaitPointerEvent()
-                        if (e.type == PointerEventType.Press) {
+                        // Menu rows own the entire click through release. The menu's
+                        // separate backdrop handles presses outside it.
+                        if (e.type == PointerEventType.Press && DesktopController.contextMenu.value == null) {
                             val pos = e.changes.first().position
                             if (e.buttons.isSecondaryPressed) {
+                                val mx = pos.x.toInt()
+                                val my = pos.y.toInt()
                                 DesktopController.quickPanelOpen.value = false
                                 DesktopController.contextMenu.value = DesktopContextMenu(
-                                    x = pos.x.toInt(),
-                                    y = pos.y.toInt(),
+                                    x = mx,
+                                    y = my,
                                     items = listOf(
                                         context.getString(R.string.desk_menu_apps) to { DesktopController.drawerOpen.value = true },
+                                        context.getString(R.string.desk_note_title) to { DesktopController.toggleStickyNote() },
+                                        "" to {},
+                                        context.getString(R.string.desk_menu_minimize_all) to { DesktopController.minimizeAll() },
+                                        "" to {},
                                         context.getString(R.string.desk_menu_next_wallpaper) to {
-                                            val next = if (wallpaper < 0) 0 else (wallpaper + 1) % WALLPAPERS.size
+                                            val cur = DesktopController.wallpaper.value
+                                            val next = if (cur < 0) 0 else (cur + 1) % WALLPAPERS.size
                                             DesktopController.setWallpaper(next)
                                         },
-                                        context.getString(R.string.desk_menu_dynamic_wallpaper) to { DesktopController.setWallpaper(-1) },
-                                        if (DesktopController.nightLight.value) context.getString(R.string.desk_menu_night_off) to { DesktopController.toggleNightLight() }
-                                        else context.getString(R.string.desk_menu_night_on) to { DesktopController.toggleNightLight() },
-                                        context.getString(R.string.desk_menu_minimize_all) to { DesktopController.minimizeAll() },
-                                        context.getString(R.string.desk_menu_close_all) to { DesktopController.closeAll() },
+                                        context.getString(R.string.desk_menu_more) to { openMoreMenu(mx, my) },
+                                        "" to {},
+                                        context.getString(R.string.desk_quick_settings) to { DesktopController.settingsOpen.value = true },
                                     ),
                                 )
                             } else {
-                                DesktopController.contextMenu.value = null
                                 DesktopController.quickPanelOpen.value = false
                             }
                         }
@@ -272,21 +310,23 @@ internal fun Desktop() {
                 }
             },
     ) {
-        // Ánh sáng ambient + watermark tinh tế kiểu iDesk
-        Box(
-            Modifier.fillMaxSize().padding(bottom = 52.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "Olyvexis",
-                fontSize = 68.sp,
-                fontWeight = FontWeight.Black,
-                color = Color(0x0DFFFFFF),
-                letterSpacing = (-1.5).sp,
-            )
+        // Ambient glow and subtle watermark on preset wallpapers (matching iDesk)
+        if (wallpaper >= 0) {
+            Box(
+                Modifier.fillMaxSize().padding(bottom = 56.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Olyvexis",
+                    fontSize = 88.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0x0FFFFFFF),
+                    letterSpacing = (-1.5).sp,
+                )
+            }
         }
 
-        // Icon lối tắt ngoài màn hình nền (chia cột tự động)
+        // Desktop shortcut icons (auto-wrapped columns)
         DesktopShortcuts(
             apps = pinned,
             onOpen = { DesktopController.open(it) },
@@ -302,18 +342,38 @@ internal fun Desktop() {
             modifier = Modifier.fillMaxSize().padding(start = 20.dp, top = 20.dp, bottom = 68.dp),
         )
 
-        // Xem trước vùng bám mép khi kéo cửa sổ (giống iDesk snapPreview)
+        // Clock & calendar widgets at top-right, behind windows
+        if (showWidgets) {
+            DesktopWidgetsView(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 20.dp, end = 20.dp),
+            )
+        }
+
+        if (stickyNoteOpen) {
+            StickyNoteCard(
+                text = stickyNoteText,
+                onTextChange = { DesktopController.setStickyNoteText(it) },
+                onClose = { DesktopController.toggleStickyNote() },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = if (showWidgets) 300.dp else 20.dp, end = 20.dp),
+            )
+        }
+
+        // Edge-snap preview overlay while dragging a window
         snapPreview?.let { SnapPreviewOverlay(it) }
 
-        // Các cửa sổ sắp xếp theo ghim trên cùng -> thứ tự Z
+        // Windows in the active workspace, sorted by always-on-top flag then Z-order
         windows
-            .filterNot { it.minimized }
+            .filter { !it.minimized && it.workspace == currentWorkspace }
             .sortedWith(compareBy<AppWindow> { it.keepOnTop }.thenBy { it.z })
             .forEach { window ->
                 key(window.id) { WindowFrame(window) }
             }
 
-        // Ngăn ứng dụng nổi
+        // Floating app drawer
         AnimatedVisibility(
             visible = drawerOpen,
             enter = fadeIn(tween(150)) + scaleIn(tween(160), initialScale = 0.96f),
@@ -332,7 +392,51 @@ internal fun Desktop() {
             )
         }
 
-        // Bảng cài đặt nhanh & cửa sổ đang mở ở góc phải
+        // Spotlight (Meta + Space or Search button on taskbar)
+        AnimatedVisibility(
+            visible = spotlightOpen,
+            enter = fadeIn(tween(130)) + scaleIn(tween(140), initialScale = 0.96f),
+            exit = fadeOut(tween(110)) + scaleOut(tween(110), targetScale = 0.96f),
+        ) {
+            SpotlightOverlay(
+                apps = apps,
+                windows = windows,
+                onDismiss = { DesktopController.spotlightOpen.value = false },
+            )
+        }
+
+        // Keyboard shortcuts overlay (Meta + /)
+        AnimatedVisibility(
+            visible = shortcutsOpen,
+            enter = fadeIn(tween(130)),
+            exit = fadeOut(tween(110)),
+        ) {
+            ShortcutsOverlay(onDismiss = { DesktopController.shortcutsOpen.value = false })
+        }
+
+        // Desktop Settings overlay
+        AnimatedVisibility(
+            visible = settingsOpen,
+            enter = fadeIn(tween(130)) + scaleIn(tween(140), initialScale = 0.96f),
+            exit = fadeOut(tween(110)) + scaleOut(tween(110), targetScale = 0.96f),
+        ) {
+            DesktopSettingsOverlay(
+                wallpapers = WALLPAPERS,
+                onDismiss = { DesktopController.settingsOpen.value = false },
+                onOpenAndroidSettings = { DesktopController.openAndroidSettings(context) },
+            )
+        }
+
+        // Clipboard History overlay (Meta + Shift + V)
+        AnimatedVisibility(
+            visible = clipboardOpen,
+            enter = fadeIn(tween(130)) + scaleIn(tween(140), initialScale = 0.96f),
+            exit = fadeOut(tween(110)) + scaleOut(tween(110), targetScale = 0.96f),
+        ) {
+            ClipboardHistoryOverlay(onDismiss = { DesktopController.clipboardOpen.value = false })
+        }
+
+        // Quick Settings & running windows panel at bottom-right
         AnimatedVisibility(
             visible = quickPanelOpen,
             enter = fadeIn(tween(140)) + scaleIn(tween(150), initialScale = 0.95f),
@@ -347,10 +451,6 @@ internal fun Desktop() {
                 wallpaper = wallpaper,
                 brightness = brightness,
                 onToggleNightLight = { DesktopController.toggleNightLight() },
-                onCycleWallpaper = {
-                    val next = if (wallpaper < 0) 0 else (wallpaper + 1) % WALLPAPERS.size
-                    DesktopController.setWallpaper(next)
-                },
                 onDynamicWallpaper = { DesktopController.setWallpaper(-1) },
                 onMinimizeAll = { DesktopController.minimizeAll() },
                 onBrightnessChange = { DesktopController.setBrightness(it) },
@@ -359,46 +459,91 @@ internal fun Desktop() {
                     DesktopController.quickPanelOpen.value = false
                 },
                 onCloseWindow = { DesktopController.close(it) },
+                onOpenDesktopSettings = {
+                    DesktopController.quickPanelOpen.value = false
+                    DesktopController.settingsOpen.value = true
+                },
+                onOpenAndroidSettings = {
+                    DesktopController.quickPanelOpen.value = false
+                    DesktopController.openAndroidSettings(context)
+                },
             )
         }
 
-        // Thanh tác vụ đáy màn hình
-        Taskbar(
-            pinned = pinned,
-            windows = windows,
-            drawerOpen = drawerOpen,
-            quickPanelOpen = quickPanelOpen,
-            onApps = {
-                DesktopController.quickPanelOpen.value = false
-                DesktopController.drawerOpen.value = !drawerOpen
-            },
-            onCycleWindows = { DesktopController.cycle() },
-            onShowDesktop = { DesktopController.minimizeAll() },
-            onToggleQuickPanel = {
-                DesktopController.drawerOpen.value = false
-                DesktopController.quickPanelOpen.value = !quickPanelOpen
-            },
-            onItemContextMenu = { app, w, gx, gy ->
-                val pkg = app.component.packageName
-                val pinnedNow = repository.isPinned(pkg)
-                val items = buildList {
-                    if (w != null) {
-                        add(context.getString(if (w.minimized) R.string.desk_win_show else R.string.desk_win_focus) to { DesktopController.focus(w.id) })
-                        if (!w.minimized) add(context.getString(R.string.desk_win_minimize) to { DesktopController.minimize(w.id) })
-                        add(context.getString(R.string.desk_win_snap_left) to { DesktopController.snap(w.id, DesktopController.Snap.Left) })
-                        add(context.getString(R.string.desk_win_snap_right) to { DesktopController.snap(w.id, DesktopController.Snap.Right) })
-                    } else {
-                        add(context.getString(R.string.desk_open_app, app.label) to { DesktopController.open(app) })
-                    }
-                    add(context.getString(if (pinnedNow) R.string.desk_unpin_taskbar else R.string.desk_pin_taskbar) to { togglePin(pkg, app.label) })
-                    if (w != null) add(context.getString(R.string.desk_win_close) to { DesktopController.close(w.id) })
-                }
-                DesktopController.contextMenu.value = DesktopContextMenu(gx, gy, items)
-            },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+        // Bottom taskbar (supports auto-hide when windows are open)
+        val hasOpenWindow = windows.any { !it.minimized && it.workspace == currentWorkspace }
+        val bottomEdgeSource = remember { MutableInteractionSource() }
+        val bottomEdgeHovered by bottomEdgeSource.collectIsHoveredAsState()
+        val taskbarShown = !autoHideTaskbar || !hasOpenWindow || drawerOpen || quickPanelOpen || spotlightOpen || settingsOpen || clipboardOpen || bottomEdgeHovered
 
-        // Thanh chuyển cửa sổ Alt+Tab
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(with(LocalDensity.current) { DesktopController.TASKBAR.toDp() })
+                .hoverable(bottomEdgeSource),
+        ) {
+            AnimatedVisibility(
+                visible = taskbarShown,
+                enter = fadeIn(tween(140)),
+                exit = fadeOut(tween(140)),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                Taskbar(
+                    pinned = pinned,
+                    windows = windows,
+                    drawerOpen = drawerOpen,
+                    spotlightOpen = spotlightOpen,
+                    quickPanelOpen = quickPanelOpen,
+                    onApps = {
+                        DesktopController.quickPanelOpen.value = false
+                        DesktopController.spotlightOpen.value = false
+                        DesktopController.settingsOpen.value = false
+                        DesktopController.clipboardOpen.value = false
+                        DesktopController.drawerOpen.value = !drawerOpen
+                    },
+                    onSpotlight = {
+                        DesktopController.quickPanelOpen.value = false
+                        DesktopController.drawerOpen.value = false
+                        DesktopController.settingsOpen.value = false
+                        DesktopController.clipboardOpen.value = false
+                        DesktopController.spotlightOpen.value = !spotlightOpen
+                    },
+                    onCycleWindows = { DesktopController.cycle() },
+                    onShowDesktop = { DesktopController.minimizeAll() },
+                    onToggleQuickPanel = {
+                        DesktopController.drawerOpen.value = false
+                        DesktopController.spotlightOpen.value = false
+                        DesktopController.settingsOpen.value = false
+                        DesktopController.clipboardOpen.value = false
+                        DesktopController.quickPanelOpen.value = !quickPanelOpen
+                    },
+                    onItemContextMenu = { app, w, gx, gy ->
+                        val pkg = app.component.packageName
+                        val pinnedNow = repository.isPinned(pkg)
+                        val items = buildList {
+                            if (w != null) {
+                                add(context.getString(if (w.minimized) R.string.desk_win_show else R.string.desk_win_focus) to { DesktopController.focus(w.id) })
+                                if (!w.minimized) add(context.getString(R.string.desk_win_minimize) to { DesktopController.minimize(w.id) })
+                                add(context.getString(R.string.desk_win_snap_left) to { DesktopController.snap(w.id, DesktopController.Snap.Left) })
+                                add(context.getString(R.string.desk_win_snap_right) to { DesktopController.snap(w.id, DesktopController.Snap.Right) })
+                                add(context.getString(R.string.desk_win_snap_third_left) to { DesktopController.snap(w.id, DesktopController.Snap.LeftThird) })
+                                add(context.getString(R.string.desk_win_snap_third_center) to { DesktopController.snap(w.id, DesktopController.Snap.CenterThird) })
+                                add(context.getString(R.string.desk_win_snap_third_right) to { DesktopController.snap(w.id, DesktopController.Snap.RightThird) })
+                            } else {
+                                add(context.getString(R.string.desk_open_app, app.label) to { DesktopController.open(app) })
+                            }
+                            add(context.getString(if (pinnedNow) R.string.desk_unpin_taskbar else R.string.desk_pin_taskbar) to { togglePin(pkg, app.label) })
+                            if (w != null) add(context.getString(R.string.desk_win_close) to { DesktopController.close(w.id) })
+                        }
+                        DesktopController.contextMenu.value = DesktopContextMenu(gx, gy, items)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        // Alt+Tab window switcher
         AnimatedVisibility(
             visible = switcherActive && windows.isNotEmpty(),
             enter = fadeIn(tween(120)),
@@ -408,10 +553,14 @@ internal fun Desktop() {
             WindowSwitcher(windows = windows, topId = DesktopController.topWindow()?.id)
         }
 
-        // Menu chuột phải
-        menu?.let { m -> DesktopMenu(m.x, m.y, m.items) }
+        menu?.let { m ->
+            Box(Modifier.matchParentSize().pointerInput(Unit) {
+                detectTapGestures { DesktopController.contextMenu.value = null }
+            })
+            DesktopMenu(m.x, m.y, m.items)
+        }
 
-        // Toast thông báo ngắn
+        // Transient toast banner
         AnimatedVisibility(
             visible = toast != null,
             enter = fadeIn(tween(140)),
@@ -432,7 +581,7 @@ internal fun Desktop() {
             }
         }
 
-        // Bộ lọc Ánh sáng đêm (Night Light) + Điều chỉnh độ sáng màn hình
+        // Night Light filter + software brightness dimming overlay
         if (nightLight) {
             Box(
                 Modifier
@@ -448,8 +597,12 @@ internal fun Desktop() {
             )
         }
 
-        // Con trỏ chuột khi dùng trackpad điện thoại / cáp
+        // Software cursor for phone trackpad / wired mode
         cursor?.let { (cx, cy) -> MouseCursor(cx, cy) }
+
+        if (lockOpen) {
+            DesktopLockOverlay(onUnlock = { DesktopController.lockOpen.value = false })
+        }
     }
 }
 
@@ -458,19 +611,27 @@ private fun SnapPreviewOverlay(snap: DesktopController.Snap) {
     val density = LocalDensity.current
     val w = DesktopController.desktopWidth
     val h = DesktopController.desktopHeight - DesktopController.TASKBAR
-    val (xPx, widthPx) = when (snap) {
-        DesktopController.Snap.Left -> 8 to (w / 2 - 12)
-        DesktopController.Snap.Right -> (w / 2 + 4) to (w / 2 - 12)
-        DesktopController.Snap.Top -> 8 to (w - 16)
+    val halfW = w / 2
+    val halfH = h / 2
+    val (xPx, yPx, widthPx, heightPx) = when (snap) {
+        DesktopController.Snap.Left -> listOf(8, 8, halfW - 12, h - 16)
+        DesktopController.Snap.Right -> listOf(halfW + 4, 8, w - halfW - 12, h - 16)
+        DesktopController.Snap.Top -> listOf(8, 8, w - 16, h - 16)
+        DesktopController.Snap.LeftThird -> listOf(8, 8, w / 3 - 12, h - 16)
+        DesktopController.Snap.CenterThird -> listOf(w / 3 + 4, 8, w / 3 - 8, h - 16)
+        DesktopController.Snap.RightThird -> listOf(w * 2 / 3 + 4, 8, w - w * 2 / 3 - 12, h - 16)
+        DesktopController.Snap.TopLeft -> listOf(8, 8, halfW - 12, halfH - 12)
+        DesktopController.Snap.TopRight -> listOf(halfW + 4, 8, w - halfW - 12, halfH - 12)
+        DesktopController.Snap.BottomLeft -> listOf(8, halfH + 4, halfW - 12, h - halfH - 12)
+        DesktopController.Snap.BottomRight -> listOf(halfW + 4, halfH + 4, w - halfW - 12, h - halfH - 12)
     }
-    val heightPx = (h - 16).coerceAtLeast(100)
     Box(
         Modifier
-            .offset { IntOffset(xPx, 8) }
-            .size(with(density) { widthPx.toDp() }, with(density) { heightPx.toDp() })
+            .offset { IntOffset(xPx, yPx) }
+            .size(with(density) { widthPx.toDp() }, with(density) { heightPx.coerceAtLeast(100).toDp() })
             .clip(RoundedCornerShape(14.dp))
-            .background(Color(0x283B82F6))
-            .border(2.dp, Color(0x9960A5FA), RoundedCornerShape(14.dp)),
+            .background(Color(0x280A84FF))
+            .border(2.dp, Color(0x990A84FF), RoundedCornerShape(14.dp)),
     )
 }
 
@@ -500,7 +661,8 @@ private fun MouseCursor(x: Float, y: Float) {
 private fun DesktopMenu(x: Int, y: Int, items: List<Pair<String, () -> Unit>>) {
     val density = LocalDensity.current
     val menuW = with(density) { 250.dp.roundToPx() }
-    val menuH = with(density) { (items.size * 32 + 12).dp.roundToPx() }
+    val contentHeightDp = items.sumOf { if (it.first.isEmpty()) 9L else 32L }.toInt() + 12
+    val menuH = with(density) { contentHeightDp.dp.roundToPx() }
     val maxX = (DesktopController.desktopWidth - menuW - 8).coerceAtLeast(0)
     val maxY = (DesktopController.desktopHeight - DesktopController.TASKBAR - menuH - 8).coerceAtLeast(0)
     Column(
@@ -511,15 +673,31 @@ private fun DesktopMenu(x: Int, y: Int, items: List<Pair<String, () -> Unit>>) {
             .clip(RoundedCornerShape(10.dp))
             .background(DexTheme.panelGlass)
             .border(1.dp, DexTheme.borderLight, RoundedCornerShape(10.dp))
+            // Menu padding and separators are inside the menu, too.
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) awaitPointerEvent()
+                }
+            }
             .padding(6.dp),
     ) {
         items.forEach { (label, action) ->
-            HoverRow(onClick = {
-                DesktopController.contextMenu.value = null
-                action()
-            }) {
-                Box(Modifier.height(32.dp).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(label, color = DexTheme.text, fontSize = 13.sp)
+            if (label.isEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .height(1.dp)
+                        .background(DexTheme.borderLight),
+                )
+            } else {
+                HoverRow(onClick = {
+                    DesktopController.contextMenu.value = null
+                    action()
+                }) {
+                    Box(Modifier.height(32.dp).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
+                        Text(label, color = DexTheme.text, fontSize = 13.sp)
+                    }
                 }
             }
         }
@@ -563,7 +741,7 @@ private fun AppIcon(app: LaunchableApp, size: Dp, modifier: Modifier = Modifier)
     }
 }
 
-// ---------------------------------------------------------------- màn hình nền
+// ---------------------------------------------------------------- desktop wallpaper & icons
 
 @Composable
 private fun DesktopShortcuts(
@@ -630,15 +808,17 @@ private fun DesktopShortcuts(
     }
 }
 
-// ---------------------------------------------------------------- thanh tác vụ
+// ---------------------------------------------------------------- taskbar
 
 @Composable
 private fun Taskbar(
     pinned: List<LaunchableApp>,
     windows: List<AppWindow>,
     drawerOpen: Boolean,
+    spotlightOpen: Boolean,
     quickPanelOpen: Boolean,
     onApps: () -> Unit,
+    onSpotlight: () -> Unit,
     onCycleWindows: () -> Unit,
     onShowDesktop: () -> Unit,
     onToggleQuickPanel: () -> Unit,
@@ -650,42 +830,104 @@ private fun Taskbar(
     val pinnedPackages = pinned.map { it.component.packageName }.toSet()
     val running = windows.map { it.app }.distinctBy { it.component.packageName }
         .filterNot { it.component.packageName in pinnedPackages }
+    val pillShape = RoundedCornerShape(15.dp)
 
-    Column(modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(DexTheme.borderLight))
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(with(density) { DesktopController.TASKBAR.toDp() })
+            .padding(start = 8.dp, end = 0.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Floating dock pill (system squircles, workspaces, pinned & running app icons)
         Row(
             Modifier
-                .fillMaxWidth()
-                .height(with(density) { DesktopController.TASKBAR.toDp() } - 1.dp)
+                .weight(1f)
+                .height(48.dp)
+                .shadow(12.dp, pillShape)
+                .clip(pillShape)
                 .background(DexTheme.taskbar)
-                .padding(start = 10.dp, end = 0.dp),
+                .border(1.dp, Color(0x24FFFFFF), pillShape)
+                .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            // Như iDesk: nút ứng dụng, rồi Tìm, Gần đây, Home, Quay lại.
-            TaskbarIconButton(active = drawerOpen, width = 44.dp, filled = true, onClick = onApps) {
-                Canvas(Modifier.size(17.dp)) { drawAppsGlyph(Color.White) }
+            TaskbarIconButton(active = drawerOpen, onClick = onApps) {
+                Canvas(Modifier.size(14.dp)) { drawAppsGlyph(Color.White) }
             }
-            Spacer(Modifier.width(4.dp))
-            TaskbarIconButton(active = false, onClick = onApps) {
-                Icon(DeskIcons.Search, contentDescription = "Tìm", tint = DexTheme.text, modifier = Modifier.size(16.dp))
+            TaskbarIconButton(active = spotlightOpen, onClick = onSpotlight) {
+                Icon(DeskIcons.Search, contentDescription = stringResource(R.string.desk_search_title), tint = Color.White, modifier = Modifier.size(14.dp))
             }
             TaskbarIconButton(active = false, onClick = onCycleWindows) {
-                Icon(DeskIcons.Recents, contentDescription = "Gần đây", tint = DexTheme.text, modifier = Modifier.size(16.dp))
+                Icon(DeskIcons.Recents, contentDescription = "Gần đây", tint = Color.White, modifier = Modifier.size(14.dp))
             }
             TaskbarIconButton(active = false, onClick = onShowDesktop) {
-                Icon(DeskIcons.Home, contentDescription = "Màn hình chính", tint = DexTheme.text, modifier = Modifier.size(16.dp))
+                Icon(DeskIcons.Home, contentDescription = "Màn hình chính", tint = Color.White, modifier = Modifier.size(14.dp))
             }
             TaskbarIconButton(active = false, onClick = { DesktopController.topWindow()?.let { DesktopController.sendBack(it.id) } }) {
-                Icon(DeskIcons.ArrowBack, contentDescription = "Quay lại", tint = DexTheme.text, modifier = Modifier.size(16.dp))
+                Icon(DeskIcons.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(14.dp))
             }
-            Spacer(Modifier.width(8.dp))
 
-            // App ghim + app đang chạy (dạng pill mượt giống iDesk TaskItem)
+            // Compact workspace switcher slots (1..4)
+            val currentWs by DesktopController.currentWorkspace.collectAsState()
+            for (ws in 1..DesktopController.WORKSPACE_COUNT) {
+                val activeWs = ws == currentWs
+                val hasWin = windows.any { it.workspace == ws }
+                val wsSource = remember { MutableInteractionSource() }
+                val wsHovered by wsSource.collectIsHoveredAsState()
+                Box(
+                    Modifier
+                        .size(width = 28.dp, height = 40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            when {
+                                activeWs -> Color(0x2EFFFFFF)
+                                wsHovered -> Color(0x1AFFFFFF)
+                                else -> Color.Transparent
+                            },
+                        )
+                        .hoverable(wsSource)
+                        .clickable(interactionSource = wsSource, indication = null) { DesktopController.switchWorkspace(ws) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            "$ws",
+                            color = if (activeWs) Color.White else DexTheme.textDim,
+                            fontSize = 12.sp,
+                            fontWeight = if (activeWs) FontWeight.Bold else FontWeight.Medium,
+                        )
+                        Box(
+                            Modifier
+                                .size(4.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when {
+                                        activeWs && hasWin -> Color.White.copy(alpha = 0.9f)
+                                        hasWin -> Color.White.copy(alpha = 0.5f)
+                                        else -> Color.Transparent
+                                    },
+                                ),
+                        )
+                    }
+                }
+            }
+
+            // Vertical hairline divider between system controls and apps
+            Box(
+                Modifier
+                    .padding(horizontal = 4.dp)
+                    .width(1.dp)
+                    .height(24.dp)
+                    .background(Color(0x40FFFFFF)),
+            )
+
+            // Pinned + running app icons (iDesk dock slot style)
             Row(
                 Modifier.weight(1f).horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 (pinned + running).forEach { app ->
                     val appWindows = windows.filter { it.app.component.packageName == app.component.packageName }
@@ -706,35 +948,40 @@ private fun Taskbar(
                     )
                 }
             }
+        }
 
-            // Khay hệ thống bấm mở QuickPanel
+        // Right floating pill: system tray (opens QuickPanel)
+        Box(
+            Modifier
+                .height(48.dp)
+                .shadow(12.dp, pillShape)
+                .clip(pillShape)
+                .background(DexTheme.taskbar)
+                .border(1.dp, Color(0x24FFFFFF), pillShape),
+        ) {
             SystemTray(
                 active = quickPanelOpen,
                 onClick = onToggleQuickPanel,
             )
-
-            // Góc phải cùng: Hiện desktop
-            val showDeskSource = remember { MutableInteractionSource() }
-            val showDeskHovered by showDeskSource.collectIsHoveredAsState()
-            Box(
-                Modifier
-                    .width(10.dp)
-                    .fillMaxHeight()
-                    .background(if (showDeskHovered) Color(0x33FFFFFF) else Color.Transparent)
-                    .hoverable(showDeskSource)
-                    .clickable(interactionSource = showDeskSource, indication = null, onClick = onShowDesktop),
-            ) {
-                Box(Modifier.align(Alignment.CenterStart).width(1.dp).fillMaxHeight().background(Color(0x40FFFFFF)))
-            }
         }
+
+        // Far right: Show desktop strip
+        val showDeskSource = remember { MutableInteractionSource() }
+        val showDeskHovered by showDeskSource.collectIsHoveredAsState()
+        Box(
+            Modifier
+                .width(8.dp)
+                .height(48.dp)
+                .background(if (showDeskHovered) Color(0x33FFFFFF) else Color.Transparent)
+                .hoverable(showDeskSource)
+                .clickable(interactionSource = showDeskSource, indication = null, onClick = onShowDesktop),
+        )
     }
 }
 
 @Composable
 private fun TaskbarIconButton(
     active: Boolean,
-    width: Dp = 40.dp,
-    filled: Boolean = false,
     onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -742,21 +989,23 @@ private fun TaskbarIconButton(
     val hovered by source.collectIsHoveredAsState()
     Box(
         Modifier
-            .size(width = width, height = 40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                when {
-                    active -> DexTheme.accent.copy(alpha = 0.5f)
-                    hovered -> Color(if (filled) 0x29FFFFFF else 0x24FFFFFF)
-                    filled -> Color(0x14FFFFFF)
-                    else -> Color.Transparent
-                },
-            )
+            .size(width = 36.dp, height = 40.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (hovered) Color(0x24FFFFFF) else Color.Transparent)
             .hoverable(source)
             .clickable(interactionSource = source, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        content()
+        Box(
+            Modifier
+                .size(30.dp)
+                .shadow(2.dp, RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (active) DexTheme.accent else Color(0xE6424242)),
+            contentAlignment = Alignment.Center,
+        ) {
+            content()
+        }
     }
 }
 
@@ -774,61 +1023,39 @@ private fun TaskbarAppPill(
     var menuPosition by remember { mutableStateOf(IntOffset.Zero) }
     Box(
         Modifier
-            .height(40.dp)
+            .size(width = 38.dp, height = 40.dp)
             .onGloballyPositioned { coordinates ->
                 val position = coordinates.positionInRoot()
                 menuPosition = IntOffset(position.x.toInt(), position.y.toInt())
             }
-            .let { if (running) it.widthIn(min = 120.dp, max = 200.dp) else it.width(44.dp) }
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                when {
-                    focused -> Color(0x2EFFFFFF)
-                    hovered -> Color(0x1FFFFFFF)
-                    running -> Color(0x0FFFFFFF)
-                    else -> Color.Transparent
-                },
-            )
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (hovered) Color(0x24FFFFFF) else Color.Transparent)
             .hoverable(source)
             .pointerInput(app.component, running) {
                 awaitPointerEventScope {
                     while (true) {
                         val e = awaitPointerEvent()
-                        if (e.type == PointerEventType.Press) {
+                        if (e.type == PointerEventType.Release) {
                             if (e.buttons.isSecondaryPressed) onRightClick(menuPosition.x, menuPosition.y) else onClick()
                         }
                     }
                 }
-            }
-            .padding(horizontal = if (running) 10.dp else 0.dp),
-        contentAlignment = if (running) Alignment.CenterStart else Alignment.Center,
+            },
+        contentAlignment = Alignment.Center,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.alpha(if (minimized) 0.65f else 1f),
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            AppIcon(app, if (running) 18.dp else 26.dp)
+            AppIcon(app, 28.dp, Modifier.alpha(if (minimized) 0.55f else 1f))
             if (running) {
-                Text(
-                    app.label,
-                    color = DexTheme.text,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Box(
+                    Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(if (focused) DexTheme.accent else Color(0x8CFFFFFF)),
                 )
             }
-        }
-        if (running) {
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 2.dp)
-                    .size(width = if (focused) 20.dp else 8.dp, height = 3.dp)
-                    .clip(CircleShape)
-                    .background(if (focused) DexTheme.accent else Color(0x80FFFFFF)),
-            )
         }
     }
 }
@@ -851,8 +1078,7 @@ private fun SystemTray(active: Boolean, onClick: () -> Unit) {
     val hovered by source.collectIsHoveredAsState()
     Row(
         Modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .height(48.dp)
             .background(
                 when {
                     active -> Color(0x2BFFFFFF)
@@ -862,9 +1088,9 @@ private fun SystemTray(active: Boolean, onClick: () -> Unit) {
             )
             .hoverable(source)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Canvas(Modifier.size(16.dp)) { drawWifiGlyph(if (wifi) DexTheme.text else DexTheme.textDim.copy(alpha = 0.4f)) }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -881,7 +1107,7 @@ private fun SystemTray(active: Boolean, onClick: () -> Unit) {
     }
 }
 
-// ---------------------------------------------------------------- Quick Panel (cài đặt nhanh & cửa sổ)
+// ---------------------------------------------------------------- Quick Panel (settings & windows)
 
 @Composable
 private fun QuickPanel(
@@ -890,12 +1116,13 @@ private fun QuickPanel(
     wallpaper: Int,
     brightness: Float,
     onToggleNightLight: () -> Unit,
-    onCycleWallpaper: () -> Unit,
     onDynamicWallpaper: () -> Unit,
     onMinimizeAll: () -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onFocusWindow: (Int) -> Unit,
     onCloseWindow: (Int) -> Unit,
+    onOpenDesktopSettings: () -> Unit,
+    onOpenAndroidSettings: () -> Unit,
 ) {
     var now by remember { mutableStateOf(Date()) }
     LaunchedEffect(Unit) {
@@ -929,7 +1156,10 @@ private fun QuickPanel(
             )
         }
 
-        // Lưới 2x2 các nút nhanh
+        // Quick toggles grid (Night Light, Dynamic Wallpaper, Widgets, Auto-hide Taskbar, Next Wallpaper, Show Desktop)
+        val showWidgets by DesktopController.showWidgets.collectAsState()
+        val autoHide by DesktopController.autoHideTaskbar.collectAsState()
+        val stickyNoteOpen by DesktopController.stickyNoteOpen.collectAsState()
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 QuickTile(
@@ -949,23 +1179,58 @@ private fun QuickPanel(
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 QuickTile(
-                    icon = DeskIcons.SwapHoriz,
-                    label = stringResource(R.string.desk_quick_change_bg),
-                    active = false,
-                    onClick = onCycleWallpaper,
+                    icon = DeskIcons.AppsGrid,
+                    label = stringResource(R.string.desk_quick_widgets),
+                    active = showWidgets,
+                    onClick = { DesktopController.toggleWidgets() },
                     modifier = Modifier.weight(1f),
                 )
                 QuickTile(
                     icon = DeskIcons.Monitor,
+                    label = stringResource(R.string.desk_quick_autohide),
+                    active = autoHide,
+                    onClick = { DesktopController.toggleAutoHideTaskbar() },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                QuickTile(
+                    icon = DeskIcons.AppsGrid,
+                    label = stringResource(R.string.desk_note_title),
+                    active = stickyNoteOpen,
+                    onClick = { DesktopController.toggleStickyNote() },
+                    modifier = Modifier.weight(1f),
+                )
+                QuickTile(
+                    icon = DeskIcons.Search,
+                    label = stringResource(R.string.desk_clipboard_title),
+                    active = false,
+                    onClick = {
+                        DesktopController.quickPanelOpen.value = false
+                        DesktopController.clipboardOpen.value = true
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                QuickTile(
+                    icon = DeskIcons.Home,
                     label = stringResource(R.string.desk_quick_show_desktop),
                     active = false,
                     onClick = onMinimizeAll,
                     modifier = Modifier.weight(1f),
                 )
+                QuickTile(
+                    icon = DeskIcons.Monitor,
+                    label = stringResource(R.string.desk_lock_action),
+                    active = false,
+                    onClick = { DesktopController.lockDesktop() },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
 
-        // Thanh độ sáng màn hình
+        // Brightness slider
         Row(
             Modifier
                 .fillMaxWidth()
@@ -986,7 +1251,7 @@ private fun QuickPanel(
             Text("${(brightness * 100).toInt()}%", color = DexTheme.textDim, fontSize = 11.sp)
         }
 
-        // Danh sách cửa sổ đang mở
+        // Running windows list
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 if (windows.isEmpty()) stringResource(R.string.desk_quick_no_windows)
@@ -1025,6 +1290,24 @@ private fun QuickPanel(
                     }
                 }
             }
+        }
+
+        // Android Quick Settings footer: Desktop Settings & Android System Settings
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuickTile(
+                icon = DeskIcons.Settings,
+                label = stringResource(R.string.desk_quick_settings),
+                active = false,
+                onClick = onOpenDesktopSettings,
+                modifier = Modifier.weight(1f),
+            )
+            QuickTile(
+                icon = DeskIcons.Monitor,
+                label = stringResource(R.string.desk_quick_android_settings),
+                active = false,
+                onClick = onOpenAndroidSettings,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -1115,12 +1398,12 @@ private fun hasWifi(context: Context): Boolean {
     return cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true }
 }
 
-// ---------------------------------------------------------------- ngăn ứng dụng
+// ---------------------------------------------------------------- app drawer
 
 /**
- * Menu ứng dụng như LauncherView của iDesk: bảng nổi kính mờ ở góc trái dưới, ngay trên nút ứng
- * dụng; tiêu đề, ô "Gõ để tìm" (gõ bàn phím là tìm ngay), mục Gần đây và Tất cả ứng dụng, lưới 3
- * cột. Nhấp phải vào app để ghim/bỏ ghim lên desktop và thanh tác vụ.
+ * App drawer: frosted floating panel at bottom-left above the app button, featuring a search
+ * field (type immediately to filter), Recent and All Apps sections in a 3-column grid.
+ * Right-click an app to pin/unpin it to the desktop and taskbar.
  */
 @Composable
 private fun AppDrawer(
@@ -1150,7 +1433,7 @@ private fun AppDrawer(
     val taskbar = with(density) { DesktopController.TASKBAR.toDp() }
     val maxHeight = with(density) { (DesktopController.desktopHeight - DesktopController.TASKBAR).toDp() } - 16.dp
 
-    // Bấm ra ngoài bảng thì đóng (không làm tối desktop, như iDesk).
+    // Click outside to dismiss without dimming the desktop.
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
@@ -1261,7 +1544,7 @@ private fun LauncherTile(app: LaunchableApp, pinned: Boolean, onLaunch: (Launcha
                     while (true) {
                         val e = awaitPointerEvent()
                         if (e.type == PointerEventType.Release) {
-                            // Nhả nút trái: mở. Nút phải: ghim/bỏ ghim.
+                            // Left click: launch. Right click: pin/unpin.
                             if (e.changes.any { it.previousPressed }) {
                                 if (pressedSecondary) onTogglePin(app) else onLaunch(app)
                             }
@@ -1284,12 +1567,7 @@ private fun LauncherTile(app: LaunchableApp, pinned: Boolean, onLaunch: (Launcha
     }
 }
 
-private fun foldAccents(text: String): String =
-    java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)
-        .replace(Regex("\\p{Mn}+"), "")
-        .replace('đ', 'd')
-
-// ---------------------------------------------------------------- cửa sổ
+// ---------------------------------------------------------------- windows
 
 @Composable
 private fun WindowFrame(window: AppWindow) {
@@ -1297,7 +1575,7 @@ private fun WindowFrame(window: AppWindow) {
     fun px(value: Int): Dp = with(density) { value.toDp() }
     val focused = DesktopController.topWindow()?.id == window.id
     val maximized = window.restoreBounds != null
-    // Như iDesk: bo 10, phóng to thì bo 6.
+    // 10dp corner radius when floating, 6dp when maximized.
     val shape = if (maximized) RoundedCornerShape(6.dp) else RoundedCornerShape(10.dp)
 
     var shown by remember { mutableStateOf(false) }
@@ -1320,8 +1598,8 @@ private fun WindowFrame(window: AppWindow) {
             .border(1.dp, if (focused) DexTheme.borderAccent else DexTheme.borderLight, shape)
             .background(DexTheme.windowBackground),
     ) {
-        // Thanh tiêu đề kiểu iDesk kết hợp điều khiển cửa sổ trực quan
-        Row(
+        // Window title bar with macOS / iDesk traffic-light controls
+        Box(
             Modifier
                 .fillMaxWidth()
                 .height(px(DesktopController.TITLE_BAR))
@@ -1354,7 +1632,13 @@ private fun WindowFrame(window: AppWindow) {
                         val current = DesktopController.windows.value.firstOrNull { it.id == window.id } ?: window
                         val p = Offset(current.x + change.position.x, current.y + change.position.y)
                         dragPointer = p
+                        val corner = 80
+                        val bottomLimit = DesktopController.desktopHeight - DesktopController.TASKBAR - corner
                         DesktopController.snapPreview.value = when {
+                            p.x <= edge && p.y <= corner -> DesktopController.Snap.TopLeft
+                            p.x >= DesktopController.desktopWidth - edge && p.y <= corner -> DesktopController.Snap.TopRight
+                            p.x <= edge && p.y >= bottomLimit -> DesktopController.Snap.BottomLeft
+                            p.x >= DesktopController.desktopWidth - edge && p.y >= bottomLimit -> DesktopController.Snap.BottomRight
                             p.x <= edge -> DesktopController.Snap.Left
                             p.x >= DesktopController.desktopWidth - edge -> DesktopController.Snap.Right
                             p.y <= edge -> DesktopController.Snap.Top
@@ -1362,23 +1646,34 @@ private fun WindowFrame(window: AppWindow) {
                         }
                         DesktopController.move(window.id, drag.x.toInt(), drag.y.toInt())
                     }
-                }
-                .padding(start = 12.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                },
         ) {
-            // Ba nút bên trái như iDesk: đóng (đỏ), thu nhỏ (vàng), phóng to (xanh). Ký hiệu chỉ hiện
-            // khi rê chuột vào cụm nút; cửa sổ không được chọn thì nút xám.
             val dotsSource = remember { MutableInteractionSource() }
             val dotsHovered by dotsSource.collectIsHoveredAsState()
-            Row(Modifier.hoverable(dotsSource), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TitleTrafficDot(DexTheme.close, focused, dotsHovered, onClick = { DesktopController.close(window.id) }) { drawCloseGlyph(it) }
-                TitleTrafficDot(DexTheme.minimize, focused, dotsHovered, onClick = { DesktopController.minimize(window.id) }) { drawMinimizeGlyph(it) }
-                TitleTrafficDot(DexTheme.maximize, focused, dotsHovered, onClick = { DesktopController.toggleMaximize(window.id) }) {
+            Row(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 12.dp)
+                    .hoverable(dotsSource),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val activeDots = focused || dotsHovered
+                TrafficDot(DexTheme.close, activeDots, dotsHovered, { DesktopController.close(window.id) }) { drawCloseGlyph(it) }
+                TrafficDot(DexTheme.minimize, activeDots, dotsHovered, { DesktopController.minimize(window.id) }) { drawMinimizeGlyph(it) }
+                TrafficDot(DexTheme.maximize, activeDots, dotsHovered, { DesktopController.toggleMaximize(window.id) }) {
                     if (maximized) drawRestoreGlyph(it) else drawMaximizeGlyph(it)
                 }
             }
-            // Tên cửa sổ ở giữa thanh tiêu đề.
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+
+            Row(
+                Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 84.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AppIcon(window.app, 16.dp)
                 Text(
                     window.app.label,
                     color = if (focused) DexTheme.text else DexTheme.textDim,
@@ -1386,19 +1681,19 @@ private fun WindowFrame(window: AppWindow) {
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(end = 58.dp), // cân với cụm nút bên trái
                 )
             }
-            // Ghim trên cùng: chỉ hiện chấm vàng khi đang ghim, rê chuột thì hiện nút để bật/tắt.
+
             TitleRoundButton(
                 active = window.keepOnTop,
                 activeColor = Color(0xFFFFD60A),
                 onClick = { DesktopController.toggleKeepOnTop(window.id) },
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp),
             ) {
                 Icon(
                     DeskIcons.Pin,
-                    contentDescription = "Ghim trên cùng",
-                    tint = if (window.keepOnTop) Color.Black else DexTheme.textDim.copy(alpha = 0.5f),
+                    contentDescription = null,
+                    tint = if (window.keepOnTop) Color.Black else DexTheme.textDim.copy(alpha = 0.7f),
                     modifier = Modifier.size(11.dp),
                 )
             }
@@ -1477,16 +1772,39 @@ private fun WindowFrame(window: AppWindow) {
 }
 
 @Composable
+private fun TrafficDot(
+    color: Color,
+    active: Boolean,
+    showGlyph: Boolean,
+    onClick: () -> Unit,
+    glyph: DrawScope.(Color) -> Unit,
+) {
+    Box(
+        Modifier
+            .size(16.dp)
+            .clip(CircleShape)
+            .background(if (active) color else Color(0xFF595959))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (showGlyph) {
+            Canvas(Modifier.size(7.dp)) { glyph(Color(0x99000000)) }
+        }
+    }
+}
+
+@Composable
 private fun TitleRoundButton(
     active: Boolean,
     activeColor: Color,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
     val source = remember { MutableInteractionSource() }
     val hovered by source.collectIsHoveredAsState()
     Box(
-        Modifier
+        modifier
             .size(20.dp)
             .clip(CircleShape)
             .background(
@@ -1505,28 +1823,6 @@ private fun TitleRoundButton(
 }
 
 @Composable
-private fun TitleTrafficDot(
-    color: Color,
-    focused: Boolean,
-    groupHovered: Boolean,
-    onClick: () -> Unit,
-    glyph: DrawScope.(Color) -> Unit,
-) {
-    Box(
-        Modifier
-            .size(16.dp)
-            .clip(CircleShape)
-            .background(if (focused || groupHovered) color else DexTheme.dotInactive)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (groupHovered) {
-            Canvas(Modifier.size(8.dp)) { glyph(Color(0x99000000)) }
-        }
-    }
-}
-
-@Composable
 private fun ResizeHandle(window: AppWindow, modifier: Modifier, onDrag: (Offset) -> Unit) {
     Box(
         modifier.pointerInput(window.id) {
@@ -1541,7 +1837,7 @@ private fun ResizeHandle(window: AppWindow, modifier: Modifier, onDrag: (Offset)
     )
 }
 
-// ---------------------------------------------------------------- hình vẽ icon Canvas
+// ---------------------------------------------------------------- Canvas icon helpers
 
 private fun DrawScope.drawAppsGlyph(color: Color) {
     val r = size.minDimension / 10

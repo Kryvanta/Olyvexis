@@ -17,28 +17,28 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import rikka.shizuku.Shizuku
 
-/** Trạng thái kết nối Shizuku, theo thứ tự cần đi qua. */
+/** Shizuku connection state in progression order. */
 enum class ShizukuState {
-    /** Chưa cài hoặc chưa chạy dịch vụ Shizuku (chưa có binder). */
+    /** Shizuku is not installed or its service is not running (no binder). */
     NotRunning,
-    /** Bản Shizuku quá cũ (trước API 11), cần cập nhật. */
+    /** Shizuku version is too old (pre-API 11) and must be updated. */
     Outdated,
-    /** Shizuku chạy nhưng app chưa được cấp quyền. */
+    /** Shizuku is running but the app has not been granted permission. */
     NoPermission,
-    /** Người dùng đã từ chối và chọn không hỏi lại: phải cấp tay trong app Shizuku. */
+    /** Permission was denied with "Don't ask again"; must be granted manually in Shizuku. */
     PermissionDenied,
-    /** Đã cấp quyền, sẵn sàng chạy lệnh với quyền shell. */
+    /** Permission granted and ready to execute shell commands. */
     Ready,
 }
 
 class ShizukuException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
- * Kết nối Shizuku, xin quyền và chạy lệnh shell qua [ShellService].
+ * Connects to Shizuku, requests permission, and executes shell commands via [ShellService].
  *
- * Shizuku được kích hoạt bằng Gỡ lỗi không dây ngay trên máy, nên mỗi lần khởi động lại
- * máy người dùng phải bật lại. Binder có thể mất bất cứ lúc nào; khi đó [service] bị xoá
- * và lần gọi [runCommand] sau sẽ bind lại.
+ * When Shizuku is started via Wireless Debugging on-device, it must be re-enabled after every
+ * reboot. The binder may drop at any time; when it does, [service] is cleared and the next
+ * [runCommand] call rebinds.
  */
 object ShizukuManager {
     private const val TAG = "Olyvexis/Shizuku"
@@ -53,7 +53,7 @@ object ShizukuManager {
     private var service: IShellService? = null
     private var pendingService: CompletableDeferred<IShellService>? = null
 
-    /** Tạo trong [init], vì [version][Shizuku.UserServiceArgs.version] cần biết thời điểm cài APK. */
+    /** Initialized in [init] because [version][Shizuku.UserServiceArgs.version] uses APK install time. */
     private lateinit var userServiceArgs: Shizuku.UserServiceArgs
 
     private val connection = object : ServiceConnection {
@@ -90,8 +90,8 @@ object ShizukuManager {
         }
 
     fun init(context: Context) {
-        // Shizuku dùng lại tiến trình ShellService cũ nếu version không đổi. Lấy theo thời điểm cài
-        // APK để mỗi lần cài bản mới (kể cả bản debug cùng versionCode) đều chạy code mới.
+        // Shizuku reuses the old ShellService process if version is unchanged. Use APK install time
+        // so every fresh install (including debug builds with the same versionCode) runs new code.
         val installed = context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
         userServiceArgs = Shizuku.UserServiceArgs(
             ComponentName(BuildConfig.APPLICATION_ID, ShellService::class.java.name),
@@ -116,16 +116,16 @@ object ShizukuManager {
                 else -> ShizukuState.NoPermission
             }
         } catch (e: Exception) {
-            // Binder có thể chết giữa chừng các lệnh gọi trên.
+            // Binder can die between the calls above.
             Log.w(TAG, "Không kiểm tra được Shizuku", e)
             ShizukuState.NotRunning
         }
     }
 
     /**
-     * uid mà Shizuku đang chạy: 2000 (shell, bật bằng Gỡ lỗi không dây/USB) hoặc 0 (root).
-     * Olyvexis được làm và thử với shell; với root, ShellContext khai tên gói com.android.shell
-     * không khớp uid 0 nên hệ thống có thể từ chối tạo màn hình ảo.
+     * UID Shizuku is running as: 2000 (shell, via Wireless Debugging/USB) or 0 (root).
+     * Olyvexis targets shell; under root, ShellContext's `com.android.shell` package name does not
+     * match UID 0, so the system may reject virtual display creation.
      */
     fun serverUid(): Int? = runCatching { Shizuku.getUid() }.getOrNull()
 
@@ -137,8 +137,8 @@ object ShizukuManager {
     }
 
     /**
-     * Chạy một lệnh shell với quyền shell (uid 2000), qua `sh -c`.
-     * Không ném lỗi khi lệnh trả mã khác 0; chỉ ném [ShizukuException] khi không gọi được Shizuku.
+     * Executes a shell command with shell privileges (UID 2000) via `sh -c`.
+     * Does not throw on non-zero exit codes; throws [ShizukuException] only if Shizuku fails.
      */
     suspend fun runCommand(
         command: String,
@@ -146,8 +146,8 @@ object ShizukuManager {
     ): ShellResult = withShell { it.exec(command, timeoutMs) }
 
     /**
-     * Gọi [block] với [IShellService] trên luồng IO. Lỗi binder (mất kết nối, hoặc service ném
-     * lỗi như khi hệ thống từ chối tạo màn hình ảo) được gói thành [ShizukuException].
+     * Invokes [block] with [IShellService] on the IO dispatcher. Binder errors or remote
+     * exceptions from ShellService are wrapped in [ShizukuException].
      */
     suspend fun <T> withShell(block: (IShellService) -> T): T = withContext(Dispatchers.IO) {
         val shell = shellService()
@@ -157,12 +157,12 @@ object ShizukuManager {
             synchronized(lock) { if (service === shell) service = null }
             throw ShizukuException("Mất kết nối ShellService", e)
         } catch (e: RuntimeException) {
-            // Lỗi ném từ ShellService được gửi qua binder dưới dạng RuntimeException (vd. IllegalStateException).
+            // Exceptions thrown by ShellService arrive across Binder as RuntimeException (e.g. IllegalStateException).
             throw ShizukuException(e.message ?: "ShellService báo lỗi", e)
         }
     }
 
-    /** Lấy [IShellService], bind nếu chưa có. */
+    /** Returns [IShellService], binding if not yet connected. */
     private suspend fun shellService(): IShellService {
         refresh()
         if (_state.value != ShizukuState.Ready) {
@@ -196,7 +196,7 @@ object ShizukuManager {
         }
     }
 
-    /** Dừng tiến trình ShellService (vd. khi người dùng tắt Olyvexis). */
+    /** Stops the ShellService process (e.g. when the user shuts down Olyvexis). */
     fun unbind() {
         synchronized(lock) { service = null }
         runCatching { Shizuku.unbindUserService(userServiceArgs, connection, true) }

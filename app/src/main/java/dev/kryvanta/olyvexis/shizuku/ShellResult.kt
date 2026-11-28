@@ -3,7 +3,7 @@ package dev.kryvanta.olyvexis.shizuku
 import android.os.Parcel
 import android.os.Parcelable
 
-/** Kết quả một lệnh shell. Gửi qua binder từ ShellService về app. */
+/** Result of a shell command returned from ShellService to the app over Binder. */
 class ShellResult(
     val exitCode: Int,
     val stdout: String,

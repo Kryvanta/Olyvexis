@@ -27,7 +27,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service giữ cho phiên Wi-Fi sống khi người dùng rời app.
+ * Foreground service keeping the Wi-Fi streaming session alive when the user leaves the app.
  */
 class StreamService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -36,8 +36,8 @@ class StreamService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     /**
-     * Giữ máy thức trong lúc phát: màn hình điện thoại tắt thì Android cho cả các màn hình ảo
-     * ngủ theo, desktop đứng hình.
+     * Keep the device awake while streaming: when the phone screen turns off, Android also suspends
+     * virtual displays and the desktop freezes.
      */
     @Suppress("DEPRECATION")
     private val wakeLock by lazy {
@@ -45,7 +45,7 @@ class StreamService : Service() {
             .newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ON_AFTER_RELEASE, "Olyvexis:stream")
     }
 
-    /** Giữ Wi-Fi ở chế độ độ trễ thấp trong lúc phát. */
+    /** Keep Wi-Fi in low-latency mode while streaming. */
     @Suppress("DEPRECATION")
     private val wifiLock by lazy {
         applicationContext.getSystemService(WifiManager::class.java)

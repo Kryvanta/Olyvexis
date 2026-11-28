@@ -2,17 +2,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- stream: server HTTP/WebSocket trong mạng nội bộ -->
+    <!-- stream: local HTTP/WebSocket server -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <!-- stream: chạy nền khi đang phát -->
+    <!-- stream: keep running in background -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- stream: giữ máy thức khi đang phát -->
+    <!-- stream: keep device awake while streaming -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- desktop: liệt kê app để hiện trong menu ứng dụng -->
+    <!-- desktop: list launchable apps in the app drawer -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
@@ -36,9 +36,8 @@
             </intent-filter>
         </activity>
 
-        <!-- desktop: giao diện trên màn hình lớn. ShellService mở nó lên màn hình desktop bằng
-             lệnh am start với tuỳ chọn display, nên phải exported. configChanges để đổi kích thước/mật độ
-             không tạo lại activity (các cửa sổ vẫn giữ nguyên). -->
+        <!-- Desktop UI on external/virtual display. Exported so ShellService can launch it via `am start`.
+             configChanges preserves open windows across size/density updates. -->
         <activity
             android:name=".desktop.DesktopActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density|keyboard|keyboardHidden|navigation|uiMode"
@@ -48,17 +47,16 @@
             android:resizeableActivity="true"
             android:taskAffinity="dev.kryvanta.olyvexis.desktop" />
 
-        <!-- stream: phát màn hình desktop qua Wi-Fi -->
         <service
             android:name=".stream.StreamService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Phát màn hình desktop ảo tới trình duyệt trong mạng nội bộ" />
+                android:value="Stream virtual desktop display to local network browser" />
         </service>
 
-        <!-- shizuku: provider bắt buộc để Shizuku gửi binder cho app -->
+        <!-- Shizuku binder provider -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

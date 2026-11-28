@@ -39,7 +39,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -51,43 +50,44 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Hệ màu Obsidian / Glassmorphic thống nhất cho Olyvexis (lấy cảm hứng từ iDesk).
+ * Pure Dark palette shared by the setup and phone controller.
  */
 object DeskColors {
-    val Background = Color(0xFF07090E)
-    val Surface = Color(0xFF10141D)
-    val SurfaceElevated = Color(0xFF161C28)
-    val SurfaceInteractive = Color(0xFF1E2636)
-    val PanelGlass = Color(0xEB121722)
-    val TaskbarGlass = Color(0xEB0B0E15)
+    val Background = Color(0xFF000000)
+    val Surface = Color(0xFF101010)
+    val SurfaceElevated = Color(0xFF212121)
+    val SurfaceInteractive = Color(0xFF292929)
+    val PanelGlass = Color(0xEA101010)
+    val TaskbarGlass = Color(0xEB000000)
 
     val BorderSubtle = Color(0x1AFFFFFF)
     val BorderMedium = Color(0x2EFFFFFF)
-    val BorderAccent = Color(0x663B82F6)
+    val BorderAccent = Color(0x660A84FF)
 
-    val Accent = Color(0xFF3B82F6)
-    val AccentBright = Color(0xFF60A5FA)
-    val AccentContainer = Color(0x2B3B82F6)
+    val Accent = Color(0xFF0A84FF)
+    val OnAccent = Color.Black
+    val AccentBright = Color(0xFF409CFF)
+    val AccentContainer = Color(0x2B0A84FF)
 
-    val Success = Color(0xFF22C55E)
-    val SuccessContainer = Color(0x2422C55E)
-    val Warning = Color(0xFFF59E0B)
-    val WarningContainer = Color(0x24F59E0B)
-    val Error = Color(0xFFEF4444)
-    val ErrorContainer = Color(0x24EF4444)
+    val Success = Color(0xFF30D158)
+    val SuccessContainer = Color(0x2430D158)
+    val Warning = Color(0xFFFF9F0A)
+    val WarningContainer = Color(0x24FF9F0A)
+    val Error = Color(0xFFFF453A)
+    val ErrorContainer = Color(0x24FF453A)
 
-    val TextPrimary = Color(0xFFF4F6FA)
-    val TextSecondary = Color(0xFFA0AAC0)
-    val TextMuted = Color(0xFF6B7489)
+    val TextPrimary = Color(0xFFFFFFFF)
+    val TextSecondary = Color(0xFFABABAB)
+    val TextMuted = Color(0xFF8E8E8E)
 }
 
 private val OlyvexisColorScheme = darkColorScheme(
     primary = DeskColors.Accent,
-    onPrimary = Color.White,
+    onPrimary = DeskColors.OnAccent,
     primaryContainer = DeskColors.AccentContainer,
     onPrimaryContainer = DeskColors.AccentBright,
     secondary = DeskColors.AccentBright,
-    onSecondary = Color.White,
+    onSecondary = DeskColors.OnAccent,
     background = DeskColors.Background,
     onBackground = DeskColors.TextPrimary,
     surface = DeskColors.Surface,
@@ -149,68 +149,7 @@ fun OlyvexisTheme(content: @Composable () -> Unit) {
     )
 }
 
-/** Thẻ nền kính tối có viền mảnh, dùng xuyên suốt màn hình điện thoại. */
-@Composable
-fun DeskCard(
-    modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(20.dp),
-    containerColor: Color = DeskColors.Surface,
-    borderColor: Color = DeskColors.BorderSubtle,
-    padding: Dp = 16.dp,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = shape,
-        color = containerColor,
-        border = BorderStroke(1.dp, borderColor),
-    ) {
-        Column(
-            modifier = Modifier.padding(padding),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            content = content,
-        )
-    }
-}
-
-/** Viên trạng thái nhỏ gọn kèm chấm màu. */
-@Composable
-fun StatusPill(
-    text: String,
-    color: Color,
-    containerColor: Color,
-    modifier: Modifier = Modifier,
-    leadingDot: Boolean = true,
-) {
-    Row(
-        modifier = modifier
-            .clip(CircleShape)
-            .background(containerColor)
-            .border(1.dp, color.copy(alpha = 0.28f), CircleShape)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (leadingDot) {
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(color),
-            )
-        }
-        Text(
-            text = text,
-            color = color,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** Nút hành động chính có dải gradient nhẹ và bo tròn 14dp. */
+/** Primary action button for setup and connection screens. */
 @Composable
 fun PrimaryActionButton(
     text: String,
@@ -219,15 +158,11 @@ fun PrimaryActionButton(
     enabled: Boolean = true,
     icon: ImageVector? = null,
 ) {
-    val bg = if (enabled) {
-        Brush.horizontalGradient(listOf(DeskColors.Accent, Color(0xFF2563EB)))
-    } else {
-        Brush.horizontalGradient(listOf(DeskColors.SurfaceInteractive, DeskColors.SurfaceInteractive))
-    }
+    val bg = if (enabled) DeskColors.Accent else DeskColors.SurfaceInteractive
     Box(
         modifier = modifier
-            .height(50.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .height(48.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -241,13 +176,13 @@ fun PrimaryActionButton(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (enabled) Color.White else DeskColors.TextMuted,
+                    tint = if (enabled) DeskColors.OnAccent else DeskColors.TextMuted,
                     modifier = Modifier.size(18.dp),
                 )
             }
             Text(
                 text = text,
-                color = if (enabled) Color.White else DeskColors.TextMuted,
+                color = if (enabled) DeskColors.OnAccent else DeskColors.TextMuted,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -257,7 +192,7 @@ fun PrimaryActionButton(
     }
 }
 
-/** Nút phụ nền tối viền mảnh. */
+/** Secondary dark button with subtle border. */
 @Composable
 fun SecondaryActionButton(
     text: String,
@@ -286,151 +221,5 @@ fun SecondaryActionButton(
             Spacer(Modifier.width(7.dp))
         }
         Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/** Nút tròn kèm nhãn phía dưới giống thanh công cụ trên trackpad của iDesk. */
-@Composable
-fun ActionIconPill(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    active: Boolean = false,
-    enabled: Boolean = true,
-    showLabel: Boolean = true,
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(
-                enabled = enabled,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(
-                    when {
-                        !enabled -> Color(0x14FFFFFF)
-                        active -> DeskColors.Accent
-                        else -> Color(0x88000000)
-                    },
-                )
-                .border(
-                    1.dp,
-                    when {
-                        active -> DeskColors.AccentBright.copy(alpha = 0.7f)
-                        else -> DeskColors.BorderSubtle
-                    },
-                    CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = when {
-                    !enabled -> DeskColors.TextMuted
-                    active -> Color.White
-                    else -> DeskColors.TextPrimary.copy(alpha = 0.85f)
-                },
-                modifier = Modifier.size(19.dp),
-            )
-        }
-        if (showLabel) {
-            Text(
-                text = label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (active) DeskColors.AccentBright else DeskColors.TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-/** Khung mở/đóng mượt mà cho phần hướng dẫn hoặc chi tiết. */
-@Composable
-fun AnimatedExpandable(
-    expanded: Boolean,
-    content: @Composable () -> Unit,
-) {
-    AnimatedVisibility(
-        visible = expanded,
-        enter = expandVertically() + fadeIn(),
-        exit = shrinkVertically() + fadeOut(),
-    ) {
-        content()
-    }
-}
-
-@Composable
-fun DeskTopBar(
-    title: String,
-    subtitle: String? = null,
-    onBack: (() -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {},
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        if (onBack != null) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(DeskColors.SurfaceElevated)
-                    .border(1.dp, DeskColors.BorderSubtle, CircleShape)
-                    .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(DeskIcons.ArrowBack, contentDescription = "Quay lại", tint = DeskColors.TextPrimary, modifier = Modifier.size(19.dp))
-            }
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (subtitle != null) {
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            content = actions,
-        )
-    }
-}
-
-@Composable
-fun SmallIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    tint: Color = DeskColors.TextPrimary,
-    containerColor: Color = DeskColors.SurfaceElevated,
-) {
-    Box(
-        modifier = Modifier
-            .size(38.dp)
-            .clip(CircleShape)
-            .background(containerColor)
-            .border(1.dp, DeskColors.BorderSubtle, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(18.dp))
     }
 }

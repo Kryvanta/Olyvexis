@@ -8,9 +8,9 @@ import android.os.Build
 import android.os.Process
 
 /**
- * Context giả cho tiến trình shell: hệ thống kiểm tra tên gói khớp với uid người gọi
- * (vd. DisplayManagerService.createVirtualDisplay), nên phải khai là `com.android.shell`.
- * Cách làm giống FakeContext của scrcpy.
+ * Fake Context for the shell process: system services verify that the package name matches the
+ * caller UID (e.g. DisplayManagerService.createVirtualDisplay), so it must be `com.android.shell`.
+ * Same pattern as scrcpy's FakeContext.
  */
 class ShellContext(base: Context) : ContextWrapper(base) {
     override fun getPackageName() = SHELL_PACKAGE

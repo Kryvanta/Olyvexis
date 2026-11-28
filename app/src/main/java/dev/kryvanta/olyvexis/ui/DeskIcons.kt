@@ -9,8 +9,8 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 /**
- * Bộ icon vector sắc nét (24dp viewport) dùng chung cho cả UI điện thoại và desktop,
- * không cần phụ thuộc thêm thư viện ngoài.
+ * Crisp vector icons (24dp viewport) shared across phone and desktop UIs
+ * without external icon library dependencies.
  */
 object DeskIcons {
     private fun icon(name: String, block: ImageVector.Builder.() -> Unit): ImageVector =

@@ -8,14 +8,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Màn hình ảo cho cách Wi-Fi, giống `--new-display` của scrcpy.
+ * Virtual display for Wi-Fi mode (similar to scrcpy's `--new-display`).
  *
- * App thường không tạo được màn hình ảo chứa được app khác, nên việc tạo chạy trong
- * ShellService (uid shell). Màn hình là PUBLIC + TRUSTED + OWN_CONTENT_ONLY + OWN_FOCUS...,
- * xem ShellService.virtualDisplayFlags().
+ * Normal apps cannot create a virtual display that hosts other apps, so creation runs inside
+ * [ShellService] (shell UID) with `PUBLIC + TRUSTED + OWN_CONTENT_ONLY + OWN_FOCUS`
+ * (see `ShellService.virtualDisplayFlags()`).
  *
- * Màn hình ảo thuộc về tiến trình ShellService: nếu tiến trình đó chết (Shizuku dừng, app bị
- * tắt) thì màn hình mất theo, và các app trên đó bị đóng (DESTROY_CONTENT_ON_REMOVAL).
+ * The virtual display is owned by [ShellService]: if that process dies (Shizuku stops or the app
+ * is killed), the display is removed along with its hosted apps (`DESTROY_CONTENT_ON_REMOVAL`).
  */
 class VirtualDisplayController {
     companion object {
@@ -26,15 +26,15 @@ class VirtualDisplayController {
         private set
 
     /**
-     * Các thao tác tạo/gắn surface/giải phóng phải chạy lần lượt. Trên MagicOS, SurfaceView gọi
-     * surfaceCreated hai lần liền nhau; nếu không khoá, lần thứ hai thấy displayId vẫn null và
-     * tạo thêm một màn hình ảo, màn hình đầu bị sót lại.
+     * Operations that create/attach/release surfaces must be serialized. On MagicOS, SurfaceView
+     * invokes surfaceCreated twice in a row; without locking, the second call sees displayId == null
+     * and leaks a duplicate virtual display.
      */
     private val mutex = Mutex()
 
     /**
-     * Gắn [surface] vào màn hình ảo: tạo mới nếu chưa có, nếu có rồi thì chỉ đổi surface.
-     * Trả về displayId và true nếu vừa tạo mới.
+     * Attach [surface] to the virtual display: creates one if absent, or swaps the surface if
+     * already created. Returns displayId and whether a new display was created.
      */
     suspend fun attach(width: Int, height: Int, densityDpi: Int, surface: Surface): Pair<Int, Boolean> =
         mutex.withLock {
@@ -48,8 +48,7 @@ class VirtualDisplayController {
         }
 
     /**
-     * Tạo màn hình ảo vẽ vào [surface]: ở mốc 2 là SurfaceView để xem thử, về sau là surface
-     * đầu vào của bộ mã hoá H.264.
+     * Create a virtual display rendering into [surface] (e.g. preview surface or H.264 encoder input).
      */
     suspend fun create(
         width: Int,
@@ -74,28 +73,28 @@ class VirtualDisplayController {
         return id
     }
 
-    /** Đổi kích thước màn hình ảo (vd. khi cửa sổ trình duyệt đổi cỡ hoặc thu phóng cửa sổ app). */
+    /** Resize the virtual display (e.g. when the browser viewport or app window resizes). */
     suspend fun resize(width: Int, height: Int, densityDpi: Int) {
         val id = displayId ?: return
         ShizukuManager.withShell { it.resizeVirtualDisplay(id, width, height, densityDpi) }
     }
 
-    /** Đổi surface đích; null = tạm ngừng vẽ (vd. SurfaceView bị huỷ khi app vào nền). */
+    /** Swap the target surface; null pauses rendering (e.g. when the app goes to background). */
     suspend fun setSurface(surface: Surface?) = mutex.withLock {
         val id = displayId ?: return@withLock
         ShizukuManager.withShell { it.setVirtualDisplaySurface(id, surface) }
     }
 
     /**
-     * Mở một app lên màn hình ảo. [freeform]: mở dạng cửa sổ; chỉ bật khi máy hỗ trợ
-     * ([DeviceCapabilities.freeform]), vì có ROM từ chối hoặc xử lý lạ chế độ không hỗ trợ.
+     * Launch an app on the virtual display. [freeform]: open as a window; enable only when supported
+     * ([DeviceCapabilities.freeform]), as some ROMs reject or misbehave with unsupported modes.
      */
     suspend fun launch(component: ComponentName, freeform: Boolean): ShellResult {
         val id = checkNotNull(displayId) { "Chưa tạo màn hình ảo" }
         return ShizukuManager.withShell { it.startActivityOnDisplay(component.flattenToShortString(), id, freeform) }
     }
 
-    /** Mở app vào màn hình ảo này như một cửa sổ (kéo task sẵn có từ điện thoại sang nếu cần). */
+    /** Launch an app into this virtual display as a window (moving any existing phone task if needed). */
     suspend fun launchInWindow(component: ComponentName): ShellResult {
         val id = checkNotNull(displayId) { "Chưa tạo màn hình ảo" }
         return ShizukuManager.withShell { it.launchAppInWindow(component.flattenToShortString(), id) }

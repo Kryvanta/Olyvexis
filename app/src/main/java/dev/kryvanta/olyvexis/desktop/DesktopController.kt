@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
+import dev.kryvanta.olyvexis.R
 import dev.kryvanta.olyvexis.display.VirtualDisplayController
 import dev.kryvanta.olyvexis.shizuku.ShizukuManager
 import kotlinx.coroutines.CoroutineScope
@@ -21,7 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Một cửa sổ trên desktop. Toạ độ và kích thước tính bằng pixel của màn hình desktop. */
+/** Desktop window. Coordinates and dimensions are in desktop display pixels. */
 data class AppWindow(
     val id: Int,
     val app: LaunchableApp,
@@ -29,18 +30,19 @@ data class AppWindow(
     val y: Int,
     val width: Int,
     val height: Int,
-    /** Thứ tự chồng: số lớn hơn nằm trên. */
+    /** Z-order: higher values render on top. */
     val z: Int,
     val minimized: Boolean = false,
     val keepOnTop: Boolean = false,
-    /** Khung trước khi phóng to (x, y, w, h); null nếu đang không phóng to. */
+    val workspace: Int = 1,
+    /** Bounds before maximizing (x, y, w, h); null when not maximized. */
     val restoreBounds: List<Int>? = null,
-    /** Màn hình ảo riêng của app trong cửa sổ; null khi chưa tạo xong. */
+    /** Virtual display backing this window; null until created. */
     val displayId: Int? = null,
     val error: String? = null,
 )
 
-/** Menu ngữ cảnh tổng quát trên desktop (nền, thanh tác vụ, icon, cửa sổ). */
+/** Unified desktop context menu (wallpaper, taskbar, icons, windows). */
 data class DesktopContextMenu(
     val x: Int,
     val y: Int,
@@ -48,16 +50,18 @@ data class DesktopContextMenu(
 )
 
 /**
- * Trình quản lý cửa sổ của Olyvexis.
+ * Olyvexis desktop window manager.
  */
 object DesktopController {
     private const val TAG = "Olyvexis/Desktop"
     private const val PREFS = "desktop_prefs"
+    const val MAX_WINDOWS = 6
+    const val WORKSPACE_COUNT = 4
 
     @Volatile var density = 1f
 
-    val TITLE_BAR get() = (34 * density).toInt() // như iDesk
-    val TASKBAR get() = (48 * density).toInt() // như iDesk
+    val TITLE_BAR get() = (34 * density).toInt()
+    val TASKBAR get() = (56 * density).toInt()
     val MIN_WIDTH get() = (340 * density).toInt()
     val MIN_HEIGHT get() = (220 * density).toInt()
 
@@ -79,25 +83,36 @@ object DesktopController {
     val windows: StateFlow<List<AppWindow>> = _windows.asStateFlow()
 
     val drawerOpen = MutableStateFlow(false)
+    val spotlightOpen = MutableStateFlow(false)
+    val shortcutsOpen = MutableStateFlow(false)
+    val settingsOpen = MutableStateFlow(false)
+    val clipboardOpen = MutableStateFlow(false)
+    val lockOpen = MutableStateFlow(false)
     val quickPanelOpen = MutableStateFlow(false)
     val contextMenu = MutableStateFlow<DesktopContextMenu?>(null)
     val snapPreview = MutableStateFlow<Snap?>(null)
 
-    /** Chỉ số hình nền (-1 = hình nền động theo giờ, 0..N = hình nền gradient). */
+    val currentWorkspace = MutableStateFlow(1)
+    val stickyNoteOpen = MutableStateFlow(false)
+    val stickyNoteText = MutableStateFlow("")
+
+    /** Wallpaper index (-1 = dynamic time-of-day wallpaper, 0..N = gradient presets). */
     val wallpaper = MutableStateFlow(-1)
     val nightLight = MutableStateFlow(false)
     val brightness = MutableStateFlow(1f)
+    val showWidgets = MutableStateFlow(true)
+    val autoHideTaskbar = MutableStateFlow(false)
 
-    /** Danh sách tên gói mở gần đây (mới nhất đứng đầu). */
+    /** Recently launched package names (most recent first). */
     val recentPackages = MutableStateFlow<List<String>>(emptyList())
 
-    /** Bộ đếm tăng mỗi khi danh sách app ghim thay đổi. */
+    /** Monotonic counter incremented whenever pinned apps change. */
     val pinsVersion = MutableStateFlow(0)
 
-    /** Thanh chuyển đổi cửa sổ Alt+Tab. */
+    /** Alt+Tab window switcher overlay. */
     val switcherActive = MutableStateFlow(false)
 
-    /** Thông báo nổi ngắn ở mép trên desktop. */
+    /** Transient toast banner at the top edge of the desktop. */
     val toastMessage = MutableStateFlow<String?>(null)
 
     var desktopWidth = 1280
@@ -127,8 +142,75 @@ object DesktopController {
         wallpaper.value = p.getInt("wallpaper", -1)
         nightLight.value = p.getBoolean("night_light", false)
         brightness.value = p.getFloat("brightness", 1f).coerceIn(0.35f, 1f)
+        showWidgets.value = p.getBoolean("show_widgets", true)
+        autoHideTaskbar.value = p.getBoolean("auto_hide_taskbar", false)
+        stickyNoteOpen.value = p.getBoolean("sticky_note_open", false)
+        stickyNoteText.value = p.getString("sticky_note_text", "") ?: ""
         val recentsRaw = p.getString("recent_packages", "") ?: ""
         recentPackages.value = recentsRaw.split('|').filter { it.isNotBlank() }
+    }
+
+    fun toggleStickyNote() {
+        val next = !stickyNoteOpen.value
+        stickyNoteOpen.value = next
+        prefs?.edit()?.putBoolean("sticky_note_open", next)?.apply()
+    }
+
+    fun setStickyNoteText(text: String) {
+        stickyNoteText.value = text
+        prefs?.edit()?.putString("sticky_note_text", text)?.apply()
+    }
+
+    fun switchWorkspace(ws: Int) {
+        val target = ws.coerceIn(1, WORKSPACE_COUNT)
+        if (currentWorkspace.value == target) return
+        currentWorkspace.value = target
+        closeOverlays()
+    }
+
+    fun moveToWorkspace(windowId: Int, ws: Int) {
+        val target = ws.coerceIn(1, WORKSPACE_COUNT)
+        update(windowId) { it.copy(workspace = target, minimized = false) }
+        currentWorkspace.value = target
+        focus(windowId)
+    }
+
+    fun lockDesktop() {
+        closeOverlays()
+        lockOpen.value = true
+    }
+
+    fun toggleWidgets() {
+        val next = !showWidgets.value
+        showWidgets.value = next
+        prefs?.edit()?.putBoolean("show_widgets", next)?.apply()
+    }
+
+    fun toggleAutoHideTaskbar() {
+        val next = !autoHideTaskbar.value
+        autoHideTaskbar.value = next
+        prefs?.edit()?.putBoolean("auto_hide_taskbar", next)?.apply()
+    }
+
+    fun closeOverlays() {
+        drawerOpen.value = false
+        spotlightOpen.value = false
+        shortcutsOpen.value = false
+        settingsOpen.value = false
+        clipboardOpen.value = false
+        quickPanelOpen.value = false
+        contextMenu.value = null
+    }
+
+    /** Open Android System Settings in a desktop window. */
+    fun openAndroidSettings(context: Context) {
+        val apps = AppRepository(context).launchableApps()
+        val settingsApp = apps.firstOrNull { it.component.packageName == "com.android.settings" }
+        if (settingsApp != null) {
+            open(settingsApp)
+        } else {
+            showToast(context.getString(R.string.desk_win_error, context.getString(R.string.desk_quick_android_settings)))
+        }
     }
 
     fun setWallpaper(index: Int) {
@@ -140,7 +222,6 @@ object DesktopController {
         val next = !nightLight.value
         nightLight.value = next
         prefs?.edit()?.putBoolean("night_light", next)?.apply()
-        showToast(if (next) "Đã bật Ánh sáng đêm" else "Đã tắt Ánh sáng đêm")
     }
 
     fun setBrightness(value: Float) {
@@ -159,7 +240,8 @@ object DesktopController {
     }
 
     /**
-     * Mở app: nếu đã có cửa sổ thì đưa lên trước; nếu chưa thì mở cửa sổ mới (khôi phục vị trí/cỡ đã nhớ).
+     * Launch or focus an app: brings an existing window to front, or opens a new window
+     * restoring its last saved position and size.
      */
     fun open(app: LaunchableApp) {
         val pkg = app.component.packageName
@@ -169,7 +251,15 @@ object DesktopController {
 
         val existing = _windows.value.firstOrNull { it.app.component.packageName == pkg }
         if (existing != null) {
+            if (existing.workspace != currentWorkspace.value) {
+                currentWorkspace.value = existing.workspace
+            }
             focus(existing.id)
+            return
+        }
+
+        if (_windows.value.size >= MAX_WINDOWS) {
+            showToast("Max $MAX_WINDOWS windows open")
             return
         }
 
@@ -184,7 +274,7 @@ object DesktopController {
             val h = (saved?.getOrNull(3) ?: defaultH).coerceIn(MIN_HEIGHT, maxH)
             val x = (saved?.getOrNull(0) ?: (44 + 34 * n)).coerceIn(0, (desktopWidth - w).coerceAtLeast(0))
             val y = (saved?.getOrNull(1) ?: (28 + 30 * n)).coerceIn(0, (desktopHeight - TASKBAR - h - TITLE_BAR).coerceAtLeast(0))
-            list + AppWindow(ids.getAndIncrement(), app, x, y, w, h, z = topZ(list) + 1)
+            list + AppWindow(ids.getAndIncrement(), app, x, y, w, h, z = topZ(list) + 1, workspace = currentWorkspace.value)
         }
     }
 
@@ -268,7 +358,7 @@ object DesktopController {
     fun toggleKeepOnTop(windowId: Int) {
         update(windowId) { it.copy(keepOnTop = !it.keepOnTop) }
         val pinned = find(windowId)?.keepOnTop == true
-        showToast(if (pinned) "Đã ghim cửa sổ lên trên" else "Đã bỏ ghim cửa sổ")
+        showToast(if (pinned) "Pinned on top" else "Unpinned")
     }
 
     fun move(windowId: Int, dx: Int, dy: Int) = update(windowId) {
@@ -320,7 +410,7 @@ object DesktopController {
         commitResize(windowId)
     }
 
-    enum class Snap { Left, Right, Top }
+    enum class Snap { Left, Right, LeftThird, CenterThird, RightThird, Top, TopLeft, TopRight, BottomLeft, BottomRight }
 
     fun snap(windowId: Int, side: Snap) {
         snapPreview.value = null
@@ -328,13 +418,27 @@ object DesktopController {
             if (find(windowId)?.restoreBounds == null) toggleMaximize(windowId)
             return
         }
-        val half = desktopWidth / 2
+        val halfW = desktopWidth / 2
+        val availH = desktopHeight - TASKBAR
+        val halfH = availH / 2
+        val (nx, ny, nw, nh) = when (side) {
+            Snap.Left -> listOf(0, 0, halfW, availH - TITLE_BAR)
+            Snap.Right -> listOf(halfW, 0, desktopWidth - halfW, availH - TITLE_BAR)
+            Snap.LeftThird -> listOf(0, 0, desktopWidth / 3, availH - TITLE_BAR)
+            Snap.CenterThird -> listOf(desktopWidth / 3, 0, desktopWidth / 3, availH - TITLE_BAR)
+            Snap.RightThird -> listOf(desktopWidth * 2 / 3, 0, desktopWidth - desktopWidth * 2 / 3, availH - TITLE_BAR)
+            Snap.TopLeft -> listOf(0, 0, halfW, halfH - TITLE_BAR)
+            Snap.TopRight -> listOf(halfW, 0, desktopWidth - halfW, halfH - TITLE_BAR)
+            Snap.BottomLeft -> listOf(0, halfH, halfW, availH - halfH - TITLE_BAR)
+            Snap.BottomRight -> listOf(halfW, halfH, desktopWidth - halfW, availH - halfH - TITLE_BAR)
+            Snap.Top -> return
+        }
         update(windowId) {
             it.copy(
-                x = if (side == Snap.Left) 0 else half,
-                y = 0,
-                width = half,
-                height = desktopHeight - TASKBAR - TITLE_BAR,
+                x = nx,
+                y = ny,
+                width = nw.coerceAtLeast(MIN_WIDTH),
+                height = nh.coerceAtLeast(MIN_HEIGHT),
                 restoreBounds = it.restoreBounds ?: listOf(it.x, it.y, it.width, it.height),
             )
         }
@@ -353,13 +457,15 @@ object DesktopController {
     }
 
     fun minimizeAll() {
-        _windows.update { list -> list.map { it.copy(minimized = true) } }
+        val ws = currentWorkspace.value
+        _windows.update { list -> list.map { if (it.workspace == ws) it.copy(minimized = true) else it } }
         quickPanelOpen.value = false
     }
 
-    /** Alt+Tab: đưa cửa sổ tiếp theo lên trên và hiện thanh chuyển cửa sổ ngắn. */
+    /** Alt+Tab: focus the next window and briefly show the window switcher overlay. */
     fun cycle() {
-        val list = _windows.value
+        val ws = currentWorkspace.value
+        val list = _windows.value.filter { it.workspace == ws }
         if (list.isEmpty()) return
         val bottom = list.minByOrNull { if (it.minimized) Int.MIN_VALUE else it.z } ?: return
         focus(bottom.id)
@@ -400,7 +506,7 @@ object DesktopController {
         inputQueue.trySend(displayId to MotionEvent.obtain(event))
     }
 
-    /** Nút Quay lại trên thanh tác vụ: gửi phím Back vào cửa sổ. */
+    /** Taskbar Back button: inject a Back key event into the focused window. */
     fun sendBack(windowId: Int) {
         val now = android.os.SystemClock.uptimeMillis()
         forwardKey(windowId, KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0))
@@ -412,8 +518,12 @@ object DesktopController {
         inputQueue.trySend(displayId to KeyEvent(event))
     }
 
-    fun topWindow(): AppWindow? =
-        _windows.value.filterNot { it.minimized }.maxWithOrNull(compareBy<AppWindow> { it.keepOnTop }.thenBy { it.z })
+    fun topWindow(): AppWindow? {
+        val ws = currentWorkspace.value
+        return _windows.value
+            .filter { !it.minimized && it.workspace == ws }
+            .maxWithOrNull(compareBy<AppWindow> { it.keepOnTop }.thenBy { it.z })
+    }
 
     private fun find(windowId: Int) = _windows.value.firstOrNull { it.id == windowId }
 

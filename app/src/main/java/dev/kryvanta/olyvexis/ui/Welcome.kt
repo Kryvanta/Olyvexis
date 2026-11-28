@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.sp
 import dev.kryvanta.olyvexis.R
 import kotlinx.coroutines.launch
 
-/** Màn hướng dẫn lần đầu (giống WelcomeView của iDesk): mỗi trang một chủ đề, vài dòng ngắn. */
+/** First-run onboarding pager: one topic per page with concise copy. */
 object Welcome {
     private const val PREFS = "welcome"
     fun seen(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("seen", false)
@@ -109,7 +109,7 @@ fun WelcomeScreen(onFinish: () -> Unit) {
     ) {
         HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { i -> PageView(pages[i]) }
 
-        // Chấm trang
+        // Page indicator dots
         Row(Modifier.fillMaxWidth().padding(bottom = 18.dp), horizontalArrangement = Arrangement.Center) {
             repeat(pages.size) { i ->
                 Box(

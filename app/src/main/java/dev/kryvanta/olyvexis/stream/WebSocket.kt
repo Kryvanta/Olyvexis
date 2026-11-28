@@ -6,7 +6,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
 
-/** WebSocket tối giản (RFC 6455) cho server: bắt tay, ghi frame, đọc frame từ trình duyệt. */
+/** Minimal WebSocket (RFC 6455) server helper: handshake, frame write, and browser frame read. */
 object WebSocket {
     private const val GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -16,7 +16,7 @@ object WebSocket {
     const val OP_PING = 0x9
     const val OP_PONG = 0xA
 
-    /** Mã đóng riêng của Olyvexis (4000–4999 dành cho ứng dụng). */
+    /** Olyvexis private close code (4000-4999 reserved for applications). */
     const val CLOSE_WRONG_PIN = 4001
     const val CLOSE_SERVER_STOPPED = 4002
 
@@ -31,7 +31,7 @@ object WebSocket {
             "Connection: Upgrade\r\n" +
             "Sec-WebSocket-Accept: ${acceptKey(clientKey)}\r\n\r\n"
 
-    /** Tạo một frame hoàn chỉnh (server gửi không mask). */
+    /** Build a complete WebSocket frame (server-to-client frames are unmasked). */
     fun frame(opcode: Int, payload: ByteArray): ByteArray {
         val len = payload.size
         val headerSize = when {
@@ -70,7 +70,7 @@ object WebSocket {
         val text get() = String(payload)
     }
 
-    /** Đọc một frame từ trình duyệt (luôn có mask). Không hỗ trợ frame bị chia nhỏ (fragmented). */
+    /** Read a masked frame from the browser. Fragmented frames are not supported. */
     fun read(input: InputStream, maxSize: Int = 1 shl 20): Message {
         val b0 = input.readByteOrThrow()
         val b1 = input.readByteOrThrow()

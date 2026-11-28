@@ -1,10 +1,10 @@
-// Giải mã dự phòng khi trình duyệt không có WebCodecs (vd. trang mở bằng http://<ip-lan>,
-// không phải secure context, hoặc trình duyệt TV cũ): đóng gói H.264 Annex B thành fMP4 rồi
-// phát bằng Media Source Extensions (MSE) trong thẻ <video>. MSE chạy được ngoài secure context.
+// Fallback decoder when WebCodecs is unavailable (e.g. plain http://<lan-ip>,
+// non-secure context, or older TV browsers): muxes H.264 Annex B into fMP4 and plays via
+// Media Source Extensions (MSE) in a <video> element, which works outside secure contexts.
 //
-// Mỗi gói video thành một fragment (moof + mdat) một khung. Thời lượng một khung chỉ biết khi
-// khung sau tới, nên giữ lại một khung (trễ thêm khoảng 1 khung).
-// Bọc trong một hàm để các tên bên trong (box, bytes, u32...) không trùng biến của trang.
+// Each video packet becomes a single-frame fragment (moof + mdat). Frame duration is only known
+// when the next frame arrives, so one frame is held back (adds ~1 frame of latency).
+// Wrapped in an IIFE so internal helpers (box, bytes, u32...) do not pollute the page scope.
 window.MsePlayer = (() => {
 'use strict';
 
@@ -17,7 +17,7 @@ class MsePlayer {
     this.queue = [];
     this.seq = 1;
     this.firstPts = null;
-    this.held = null;        // khung đang giữ chờ biết thời lượng
+    this.held = null;        // frame held back until next frame reveals its duration
     this.ready = false;
     this.lastTrim = 0;
   }
@@ -27,7 +27,7 @@ class MsePlayer {
     return !!MS && MS.isTypeSupported('video/mp4; codecs="avc1.42E01F"');
   }
 
-  /** data: Uint8Array Annex B; ptsUs: số; key: có phải keyframe (có SPS/PPS) không. */
+  /** data: Uint8Array Annex B; ptsUs: number; key: whether frame is a keyframe (contains SPS/PPS). */
   push(data, ptsUs, key) {
     if (!this.ready) {
       if (!key) return;
@@ -76,7 +76,7 @@ class MsePlayer {
 
   append(segment) {
     this.queue.push(segment);
-    // Hàng đợi dài nghĩa là không theo kịp: bỏ tới keyframe sau.
+    // Queue growing means decoder is falling behind: drop until next keyframe.
     if (this.queue.length > 120) this.queue.splice(1);
     this.flush();
   }
@@ -94,7 +94,7 @@ class MsePlayer {
     this.catchUp();
   }
 
-  /** Luôn phát sát khung mới nhất để giữ độ trễ thấp. */
+  /** Keep playback near the live edge for low latency. */
   catchUp() {
     const v = this.video;
     if (v.buffered.length === 0) return;
@@ -105,7 +105,7 @@ class MsePlayer {
     if (now - this.lastTrim > 10000) { this.lastTrim = now; this.trim(false); }
   }
 
-  /** Xoá phần đã phát để buffer không phình ra. */
+  /** Trim already-played buffer ranges to prevent unbounded memory growth. */
   trim(force) {
     const b = this.buffer, v = this.video;
     if (!b || b.updating || v.buffered.length === 0) return;
@@ -122,7 +122,7 @@ class MsePlayer {
 
 // ------------------------------------------------------------------ H.264
 
-/** Tách Annex B thành các NAL (không có mã bắt đầu). */
+/** Split Annex B byte stream into NAL units (without start codes). */
 function splitNals(data) {
   const out = [];
   let i = 0, start = -1;
@@ -139,7 +139,7 @@ function splitNals(data) {
   return out;
 }
 
-/** Annex B -> AVCC (độ dài 4 byte trước mỗi NAL), bỏ SPS/PPS/AUD vì đã nằm trong avcC. */
+/** Annex B -> AVCC (4-byte length prefix per NAL), stripping SPS/PPS/AUD already in avcC. */
 function toAvcc(data) {
   const nals = splitNals(data).filter(n => { const t = n[0] & 0x1f; return t !== 7 && t !== 8 && t !== 9; });
   let size = 0;
@@ -151,14 +151,14 @@ function toAvcc(data) {
   return out;
 }
 
-/** Đọc kích thước khung từ SPS (bỏ byte chống giả mã bắt đầu, đọc Exp-Golomb). */
+/** Parse frame dimensions from SPS (strips emulation prevention bytes, reads Exp-Golomb). */
 function spsSize(sps) {
   const bytes = [];
   for (let i = 0; i < sps.length; i++) {
     if (i >= 2 && sps[i] === 3 && sps[i - 1] === 0 && sps[i - 2] === 0) continue;
     bytes.push(sps[i]);
   }
-  let bit = 8; // bỏ byte header NAL
+  let bit = 8; // skip NAL header byte
   const u = n => { let v = 0; for (let k = 0; k < n; k++, bit++) v = (v << 1) | ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1); return v; };
   const ue = () => { let z = 0; while (u(1) === 0 && z < 32) z++; return (1 << z) - 1 + u(z); };
   const se = () => { const v = ue(); return v & 1 ? (v + 1) / 2 : -v / 2; };
@@ -192,7 +192,7 @@ function spsSize(sps) {
   };
 }
 
-// ------------------------------------------------------------------ hộp MP4
+// ------------------------------------------------------------------ MP4 boxes
 
 function box(type, ...parts) {
   let size = 8;
@@ -237,7 +237,7 @@ function initSegment(sps, pps, width, height) {
 }
 
 function mediaSegment(seq, dts, duration, data, key) {
-  const flags = key ? 0x02000000 : 0x01010000; // keyframe: không phụ thuộc; delta: phụ thuộc, non-sync
+  const flags = key ? 0x02000000 : 0x01010000; // keyframe: independent; delta: dependent, non-sync
   const build = offset => box('moof',
     box('mfhd', u32(0), u32(seq)),
     box('traf',

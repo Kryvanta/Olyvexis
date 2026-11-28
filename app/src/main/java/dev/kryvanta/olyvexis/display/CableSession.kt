@@ -25,20 +25,20 @@ import kotlinx.coroutines.sync.withLock
 sealed interface CableState {
     data object Idle : CableState
     data object Starting : CableState
-    /** [vendorDesktop]: chế độ desktop của hãng vẫn đang chạy trên màn hình (vd. "Samsung DeX"). */
+    /** [vendorDesktop]: OEM desktop mode still running on the display (e.g. "Samsung DeX"). */
     data class Running(val displayId: Int, val name: String, val vendorDesktop: String? = null) : CableState
     data class Failed(val message: String) : CableState
 }
 
 /**
- * Cách qua cáp: mở desktop của Olyvexis lên màn hình ngoài thật (HDMI/DisplayPort qua USB-C).
+ * Wired mode: launches Olyvexis desktop directly onto a physical external display (HDMI/DP over USB-C).
  *
- * Bật chế độ desktop ẩn của Android (force_desktop_mode_on_external_displays) để hệ thống coi
- * màn hình ngoài là màn hình desktop (con trỏ chuột thật nằm trên đó...). Không bật
- * enable_freeform_support (xem enableHiddenDesktopMode). Lưu giá trị cũ và trả lại khi dừng. Cửa sổ app vẫn do Olyvexis tự
- * quản lý như cách Wi-Fi, nên không phụ thuộc freeform của hãng.
+ * Enables Android's hidden desktop mode (`force_desktop_mode_on_external_displays`) so the system
+ * treats the external display as a desktop display (hardware cursor, etc.). Does not enable
+ * `enable_freeform_support` (see [enableHiddenDesktopMode]). Saves previous values and restores
+ * them on stop. App windows are still managed by Olyvexis, independent of OEM freeform support.
  *
- * Chỉ dùng được khi chế độ desktop của hãng (Samsung DeX...) đã tắt; nếu không, DeX giữ màn hình.
+ * Only works when OEM desktop mode (e.g. Samsung DeX) is off; otherwise DeX owns the display.
  */
 object CableSession {
     private const val TAG = "Olyvexis/Cable"
@@ -52,7 +52,7 @@ object CableSession {
     private var unplugListener: DisplayManager.DisplayListener? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    /** Rút cáp: tự dừng phiên (đóng cửa sổ, trả cài đặt), không để desktop nhảy về điện thoại. */
+    /** Cable unplugged: stop session (close windows, restore settings) instead of falling back to phone. */
     private fun watchUnplug(context: Context, displayId: Int) {
         val dm = context.getSystemService(DisplayManager::class.java)
         val listener = object : DisplayManager.DisplayListener {
@@ -75,8 +75,8 @@ object CableSession {
         try {
             enableHiddenDesktopMode(context)
             val vendor = mode.vendorDesktop ?: vendorDesktopOn(mode.displayId)
-            // Mở toàn màn hình (windowingMode 1): nếu DeX/chế độ desktop của hãng vẫn chạy, nó sẽ
-            // bọc app trong cửa sổ nổi; toàn màn hình thì desktop của Olyvexis phủ kín màn hình.
+            // Launch fullscreen (windowingMode 1): if DeX/OEM desktop mode is active it wraps apps in
+            // a floating window; fullscreen lets Olyvexis cover the entire external display.
             val component = ComponentName(context, DesktopActivity::class.java).flattenToShortString()
             val r = ShizukuManager.runCommand(
                 "am start --display ${mode.displayId} --windowingMode $WINDOWING_MODE_FULLSCREEN -n $component",
@@ -111,8 +111,8 @@ object CableSession {
     private const val WINDOWING_MODE_FULLSCREEN = 1
 
     /**
-     * Chế độ desktop của hãng đang chạy trên màn hình [displayId]? App thường không thấy màn hình
-     * riêng của DeX, nên dò qua Shizuku: launcher của DeX có task trên màn hình đó không.
+     * Whether an OEM desktop mode is active on [displayId]. Apps often cannot see DeX's private
+     * display directly, so query via Shizuku whether a DeX launcher task is running on it.
      */
     private suspend fun vendorDesktopOn(displayId: Int): String? {
         val tasks = runCatching { ShizukuManager.runCommand("am stack list").stdout }.getOrDefault("")
@@ -130,7 +130,7 @@ object CableSession {
         return null
     }
 
-    /** Launcher của chế độ desktop các hãng -> tên hiện cho người dùng. Chỉ gói của Samsung đã kiểm trên máy thật; Motorola/Honor/Huawei là đoán, cần kiểm. */
+    /** OEM desktop launcher packages -> user-facing name. Samsung verified on device; others are best-effort. */
     private val VENDOR_LAUNCHERS = mapOf(
         "com.sec.android.app.desktoplauncher" to "Samsung DeX",
         "com.motorola.mobiledesktop" to "Motorola Ready For",
@@ -139,8 +139,8 @@ object CableSession {
     )
 
     /**
-     * Một số hãng (vd. Honor MagicOS) vẫn mở desktop thành cửa sổ nổi dù đã xin toàn màn hình.
-     * Khi đó kéo khung cửa sổ ra kín màn hình ngoài.
+     * Some ROMs (e.g. Honor MagicOS) still open the desktop as a floating window despite requesting
+     * fullscreen. Resize its task bounds to fill the external display when that happens.
      */
     private suspend fun fillDisplay(mode: DisplayMode.External) {
         repeat(6) { attempt ->
@@ -159,9 +159,8 @@ object CableSession {
     }
 
     /**
-     * Trả lại cài đặt hệ thống nếu lần chạy trước không kịp trả (app bị tắt hẳn, cài lại hoặc văng
-     * khi desktop đang chạy qua cáp). Gọi khi app mở lên và Shizuku sẵn sàng. Không làm gì nếu
-     * phiên qua cáp đang chạy hoặc không có gì để trả.
+     * Restore system settings if a previous wired session crashed, was force-stopped, or updated
+     * before cleanup. Called on startup once Shizuku is ready; no-op if active or nothing saved.
      */
     suspend fun recoverLeftoverSettings(context: Context) = mutex.withLock {
         if (_state.value is CableState.Running || _state.value is CableState.Starting) return@withLock
@@ -171,7 +170,7 @@ object CableSession {
         runCatching { restoreSettings(context) }.onFailure { Log.w(TAG, "Không trả lại được cài đặt", it) }
     }
 
-    /** Bật chế độ desktop ẩn của Android, lưu giá trị cũ để trả lại. */
+    /** Enable Android's hidden desktop mode and save previous values for restoration. */
     private suspend fun enableHiddenDesktopMode(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (!prefs.contains("saved")) {
@@ -180,9 +179,9 @@ object CableSession {
             prefs.edit().putString("desktop", desktop).putString("freeform", freeform).putBoolean("saved", true).apply()
         }
         ShizukuManager.runCommand(ShellCommands.FORCE_DESKTOP_MODE_ON)
-        // Không bật enable_freeform_support: có nó, màn hình ngoài mặc định mở mọi thứ thành cửa sổ
-        // nổi (vd. Honor đặt desktop thành cửa sổ ở góc). Olyvexis tự quản lý cửa sổ nên không cần.
-        // Nếu lần trước đã bật thì trả về giá trị gốc.
+        // Do not enable enable_freeform_support: it causes external displays to open everything as
+        // floating windows (e.g. Honor places the desktop in a corner). Olyvexis manages windows
+        // itself. If a previous run left it enabled, restore the original value.
         val freeform = prefs.getString("freeform", "null")
         ShizukuManager.runCommand(ShellCommands.restoreGlobalSetting("enable_freeform_support", freeform))
     }

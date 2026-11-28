@@ -13,7 +13,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
-/** Danh sách app, icon và ghim ứng dụng cho desktop. */
+/** App list, icon cache, and pinned apps for the desktop. */
 class AppRepository(private val context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -26,13 +26,13 @@ class AppRepository(private val context: Context) {
                 LaunchableApp(
                     label = it.loadLabel(pm).toString(),
                     component = ComponentName(it.activityInfo.packageName, it.activityInfo.name),
-                    icon = null, // Icon nạp lười qua AppIcons.
+                    icon = null, // Lazily loaded via AppIcons.
                 )
             }
             .sortedBy { it.label.lowercase() }
     }
 
-    /** Theo dõi cài/gỡ/cập nhật app để menu ứng dụng tự động làm mới. */
+    /** Observe package install/remove/update events so the app drawer refreshes automatically. */
     fun observeLaunchableApps(): Flow<List<LaunchableApp>> = callbackFlow {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
@@ -53,7 +53,7 @@ class AppRepository(private val context: Context) {
     }
 
     /**
-     * Danh sách app được ghim (lưu trong SharedPreferences; lần đầu lấy các app phổ biến).
+     * Pinned app package names (stored in SharedPreferences; defaults to common apps on first run).
      */
     fun pinnedApps(all: List<LaunchableApp>): List<LaunchableApp> {
         val byPackage = all.groupBy { it.component.packageName }
@@ -90,26 +90,26 @@ class AppRepository(private val context: Context) {
         const val KEY_PINNED = "pinned_packages"
 
         val PINNED_CANDIDATES = listOf(
-            // Tệp
+            // Files
             listOf("com.sec.android.app.myfiles", "com.hihonor.filemanager", "com.huawei.filemanager",
                 "com.mi.android.globalFileexplorer", "com.android.fileexplorer", "com.coloros.filemanager",
                 "com.google.android.apps.nbu.files", "com.google.android.documentsui"),
-            // Trình duyệt
+            // Browser
             listOf("com.android.chrome", "com.sec.android.app.sbrowser", "org.mozilla.firefox", "com.microsoft.emmx"),
-            // Ảnh
+            // Photos
             listOf("com.sec.android.gallery3d", "com.hihonor.photos", "com.huawei.photos", "com.miui.gallery",
                 "com.coloros.gallery3d", "com.google.android.apps.photos"),
-            // Cài đặt
+            // Settings
             listOf("com.android.settings"),
         )
     }
 }
 
-/** Bộ nhớ đệm icon app dạng ImageBitmap cho Compose. */
+/** ImageBitmap app icon cache for Compose. */
 object AppIcons {
     private val cache = LruCache<String, ImageBitmap>(256)
 
-    /** Gọi trên luồng nền: nạp icon từ PackageManager có thể chậm. */
+    /** Call on a background thread: loading icons from PackageManager can be slow. */
     fun load(context: Context, app: LaunchableApp, sizePx: Int = 96): ImageBitmap? {
         val key = app.component.flattenToString()
         cache.get(key)?.let { return it }
